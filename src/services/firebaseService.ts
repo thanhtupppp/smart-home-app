@@ -60,8 +60,8 @@ export class FirebaseService {
   /** Theo dõi sequence cho từng thiết bị để chống out-of-order execution */
   private deviceSequences: Record<string, number> = {};
 
-  private listeners: ((devices: Device[]) => void)[] = [];
-  private alertListeners: ((alerts: AlertNotification[]) => void)[] = [];
+  private listeners: { callback: (devices: Device[]) => void; homeId: string }[] = [];
+  private alertListeners: { callback: (alerts: AlertNotification[]) => void; homeId: string }[] = [];
   private connectionListeners: ((status: HomeConnectionStatus) => void)[] = [];
 
   private connectionStatus: HomeConnectionStatus = "offline";
@@ -263,28 +263,38 @@ export class FirebaseService {
 
   // ─── Subscriptions ───────────────────────────────────────────────────────
 
-  public subscribe(callback: (devices: Device[]) => void) {
-    this.listeners.push(callback);
+  public subscribe(callback: (devices: Device[]) => void, homeId?: string) {
+    const targetHome = homeId || this.activeHomeId;
+    const subscriber = { callback, homeId: targetHome };
+    this.listeners.push(subscriber);
     return () => {
-      this.listeners = this.listeners.filter((cb) => cb !== callback);
+      this.listeners = this.listeners.filter((s) => s !== subscriber);
     };
   }
 
-  public subscribeAlerts(callback: (alerts: AlertNotification[]) => void) {
-    this.alertListeners.push(callback);
+  public subscribeAlerts(callback: (alerts: AlertNotification[]) => void, homeId?: string) {
+    const targetHome = homeId || this.activeHomeId;
+    const subscriber = { callback, homeId: targetHome };
+    this.alertListeners.push(subscriber);
     return () => {
-      this.alertListeners = this.alertListeners.filter(
-        (cb) => cb !== callback
-      );
+      this.alertListeners = this.alertListeners.filter((s) => s !== subscriber);
     };
   }
 
-  private notifyListeners(devices: Device[]) {
-    this.listeners.forEach((cb) => cb(devices));
+  private notifyListeners(devices: Device[], homeId: string) {
+    this.listeners.forEach((s) => {
+      if (s.homeId === homeId) {
+        s.callback(devices);
+      }
+    });
   }
 
-  private notifyAlertListeners(alerts: AlertNotification[]) {
-    this.alertListeners.forEach((cb) => cb(alerts));
+  private notifyAlertListeners(alerts: AlertNotification[], homeId: string) {
+    this.alertListeners.forEach((s) => {
+      if (s.homeId === homeId) {
+        s.callback(alerts);
+      }
+    });
   }
 
   // ─── Devices ─────────────────────────────────────────────────────────────
@@ -557,7 +567,75 @@ export class FirebaseService {
     }
   }
 
-  // ─── Members ─────────────────────────────────────────────────────────────
+  // ─── Members & RBAC (Cloud Functions & Scoped Profile) ───────────────────
+
+  /**
+   * Gọi Firebase HTTPS Callable Function (hoặc REST fallback)
+   */
+  public async callFunction<T = any>(
+    functionName: string,
+    data: Record<string, any>
+  ): Promise<T | null> {
+    if (this.config.isDemoMode) {
+      return null;
+    }
+    try {
+      const token = await authService.getValidIdToken();
+      const projectId = this.config.projectId || (appConfig as any).firebaseProjectId || 'esp32-smarthome';
+      const region = 'us-central1';
+      const url = `https://${region}-${projectId}.cloudfunctions.net/${functionName}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ data }),
+      });
+
+      if (response.ok) {
+        const resJson = await response.json();
+        return (resJson?.result ?? resJson) as T;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mời thành viên mới qua backend Cloud Function
+   */
+  public async inviteMember(
+    homeId: string,
+    email: string,
+    role: 'owner' | 'member' | 'guest' = 'member',
+    memberName?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.config.isDemoMode) {
+      return { success: true };
+    }
+    const res = await this.callFunction('inviteMember', { homeId, email, role, memberName });
+    if (res && res.success) return { success: true };
+    return { success: false, error: res?.error || 'Không thể mời thành viên qua Cloud Function.' };
+  }
+
+  /**
+   * Thay đổi quyền thành viên qua backend Cloud Function (chỉ owner được gọi)
+   */
+  public async changeMemberRole(
+    homeId: string,
+    targetUid: string,
+    newRole: 'owner' | 'member' | 'guest'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.config.isDemoMode) {
+      return { success: true };
+    }
+    const res = await this.callFunction('changeMemberRole', { homeId, targetUid, newRole });
+    if (res && res.success) return { success: true };
+    return { success: false, error: res?.error || 'Không thể cập nhật vai trò qua Cloud Function.' };
+  }
 
   public async fetchMembers(homeId?: string): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
@@ -570,6 +648,35 @@ export class FirebaseService {
       return null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Cập nhật thông tin profile của thành viên (chỉ các trường an toàn: tên, avatar, lastLoginAt)
+   */
+  public async updateMemberProfile(
+    profile: {
+      id: string;
+      name?: string;
+      photoUrl?: string;
+      lastLoginAt?: string;
+    },
+    homeId?: string
+  ): Promise<boolean> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return true;
+    try {
+      const { id, ...patch } = profile;
+      const response = await this.requestWithAuth(
+        this.memberPath(id, homeId),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        }
+      );
+      return response.ok;
+    } catch {
+      return false;
     }
   }
 
@@ -1006,7 +1113,7 @@ export class FirebaseService {
       const snapshot = JSON.stringify(devicesList);
       if (snapshot === this.lastDeviceSnapshot) return;
       this.lastDeviceSnapshot = snapshot;
-      this.notifyListeners(devicesList);
+      this.notifyListeners(devicesList, targetHome);
     }, 3000);
 
     // Poll cảnh báo mỗi 5 giây theo activeHomeId
@@ -1024,7 +1131,7 @@ export class FirebaseService {
       const snapshot = JSON.stringify(alerts);
       if (snapshot === this.lastAlertSnapshot) return;
       this.lastAlertSnapshot = snapshot;
-      this.notifyAlertListeners(alerts);
+      this.notifyAlertListeners(alerts, targetHome);
     }, 5000);
   }
 

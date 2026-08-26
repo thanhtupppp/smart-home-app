@@ -226,13 +226,8 @@ export const ManageHomeScreen: React.FC = () => {
           }));
           setHomes(list);
           await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
-        }
-      } else {
-        const remoteHomes = await firebaseService.fetchHomes();
-        if (remoteHomes && Object.keys(remoteHomes).length > 0) {
-          const list: HomeItem[] = Object.values(remoteHomes);
-          setHomes(list);
-          await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
+        } else if (userHomes && userHomes.length === 0) {
+          setHomes([]);
         }
       }
     } catch {

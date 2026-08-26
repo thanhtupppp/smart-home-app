@@ -48,7 +48,7 @@ export const EnvironmentalCockpit: React.FC<EnvironmentalCockpitProps> = React.m
           <View style={styles.metricIconWrap}>
             <MaterialIcons name="air" size={20} color="#059669" />
           </View>
-          <Text style={styles.metricValue}>{overview.airQuality || 'Tốt (24)'}</Text>
+          <Text style={styles.metricValue}>{overview.airQuality ?? '--'}</Text>
           <Text style={styles.metricLabel}>AQI</Text>
         </View>
 

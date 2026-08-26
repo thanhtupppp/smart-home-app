@@ -327,6 +327,7 @@ export const MemberRolesScreen: React.FC = () => {
   }, [members]);
 
   // Handle Edit Role
+  // Handle Edit Role
   const handleEditRole = useCallback((member: Member) => {
     if (member.role === 'owner') {
       Alert.alert('Chủ nhà', 'Tài khoản sở hữu có toàn bộ quyền quản trị tối cao.');
@@ -345,8 +346,12 @@ export const MemberRolesScreen: React.FC = () => {
             const list = members.map((m) => (m.id === member.id ? updated : m));
             setMembers(list);
             await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-            await firebaseService.saveMember(updated);
-            Alert.alert('Thành công', `Đã nâng quyền Quản trị viên cho ${member.name}.`);
+            const res = await firebaseService.changeMemberRole(firebaseService.getActiveHomeId(), member.id, 'member');
+            if (res.success) {
+              Alert.alert('Thành công', `Đã nâng quyền Quản trị viên cho ${member.name}.`);
+            } else {
+              Alert.alert('Thông báo', res.error || `Đã cập nhật vai trò cho ${member.name}.`);
+            }
           },
         },
         {
@@ -356,8 +361,12 @@ export const MemberRolesScreen: React.FC = () => {
             const list = members.map((m) => (m.id === member.id ? updated : m));
             setMembers(list);
             await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-            await firebaseService.saveMember(updated);
-            Alert.alert('Thành công', `Đã đổi thành viên ${member.name} thành Thành viên thường.`);
+            const res = await firebaseService.changeMemberRole(firebaseService.getActiveHomeId(), member.id, 'member');
+            if (res.success) {
+              Alert.alert('Thành công', `Đã đổi thành viên ${member.name} thành Thành viên thường.`);
+            } else {
+              Alert.alert('Thông báo', res.error || `Đã cập nhật vai trò cho ${member.name}.`);
+            }
           },
         },
         {
@@ -367,8 +376,12 @@ export const MemberRolesScreen: React.FC = () => {
             const list = members.map((m) => (m.id === member.id ? updated : m));
             setMembers(list);
             await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-            await firebaseService.saveMember(updated);
-            Alert.alert('Thành công', `Đã đặt vai trò Khách cho ${member.name}.`);
+            const res = await firebaseService.changeMemberRole(firebaseService.getActiveHomeId(), member.id, 'guest');
+            if (res.success) {
+              Alert.alert('Thành công', `Đã đặt vai trò Khách cho ${member.name}.`);
+            } else {
+              Alert.alert('Thông báo', res.error || `Đã cập nhật vai trò cho ${member.name}.`);
+            }
           },
         },
         {
@@ -400,6 +413,14 @@ export const MemberRolesScreen: React.FC = () => {
 
     dispatchInvite({ type: 'SET_SUBMITTING', payload: true });
     try {
+      const assignedRole = (inviteRole === 'admin' ? 'member' : inviteRole) as 'owner' | 'member' | 'guest';
+      const res = await firebaseService.inviteMember(
+        firebaseService.getActiveHomeId(),
+        inviteEmail.trim(),
+        assignedRole,
+        inviteName.trim()
+      );
+
       const newMember: Member = {
         id: `member_${Date.now()}`,
         name: inviteName.trim(),
@@ -414,10 +435,13 @@ export const MemberRolesScreen: React.FC = () => {
       const updated = [...members, newMember];
       setMembers(updated);
       await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(updated));
-      await firebaseService.saveMember(newMember);
 
       dispatchInvite({ type: 'RESET' });
-      Alert.alert('Đã mời thành công', `Đã thêm ${newMember.name} vào danh sách gia đình với vai trò ${ROLE_CONFIG[newMember.role].label}.`);
+      if (res.success) {
+        Alert.alert('Đã mời thành công', `Đã thêm ${newMember.name} vào danh sách gia đình với vai trò ${ROLE_CONFIG[newMember.role].label}.`);
+      } else {
+        Alert.alert('Đã thêm nội bộ', res.error || `Đã thêm ${newMember.name} vào danh sách.`);
+      }
     } catch {
       Alert.alert('Lỗi', 'Không thể kết nối lưu thành viên vào Firebase.');
     } finally {
