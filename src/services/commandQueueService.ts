@@ -92,9 +92,21 @@ class CommandQueueService {
     const remaining: QueuedCommand[] = [];
 
     try {
+      const now = Date.now();
       const itemsToProcess = [...this.queue];
+      const validItems: QueuedCommand[] = [];
+
+      for (const item of itemsToProcess) {
+        // Nếu lệnh đã hết hạn (quá 60s kể từ lúc tạo), bỏ qua không gửi
+        if (item.createdAt && now - item.createdAt > 60_000) {
+          failed++;
+          continue;
+        }
+        validItems.push(item);
+      }
+
       const results = await Promise.allSettled(
-        itemsToProcess.map(async (item) => {
+        validItems.map(async (item) => {
           try {
             const res = await firebaseService.sendCommand(
               item.deviceId,
@@ -120,6 +132,15 @@ class CommandQueueService {
               remaining.push(item);
             } else {
               failed++;
+              firebaseService.logAlert({
+                id: `alert_cmd_fail_${Date.now()}`,
+                title: 'Lệnh điều khiển thất bại',
+                message: `Lệnh ${item.command.type} cho thiết bị ${item.deviceId} không thể thực hiện sau ${MAX_RETRIES} lần thử lại.`,
+                timestamp: new Date().toISOString(),
+                type: 'warning',
+                isRead: false,
+                deviceId: item.deviceId,
+              }, item.homeId).catch(() => {});
             }
           }
         }

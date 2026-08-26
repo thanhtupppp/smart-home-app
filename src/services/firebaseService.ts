@@ -5,6 +5,9 @@ import {
   CommandRecord,
   DeviceCommand,
   HomeConnectionStatus,
+  UserHomeIndex,
+  HomeMeta,
+  BatchCommandItem,
 } from "../types";
 import { authService } from "./authService";
 import { secureStorage } from "./storageService";
@@ -63,6 +66,9 @@ export class FirebaseService {
 
   private connectionStatus: HomeConnectionStatus = "offline";
   private consecutiveFailures = 0;
+
+  /** Token chống stale response khi chuyển home liên tục */
+  private syncGeneration = 0;
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private alertPollInterval: ReturnType<typeof setInterval> | null = null;
@@ -146,6 +152,7 @@ export class FirebaseService {
   public async setActiveHome(homeId: string): Promise<void> {
     if (this.activeHomeId === homeId) return;
     this.activeHomeId = homeId;
+    this.syncGeneration++;
     await secureStorage.setItem(ACTIVE_HOME_KEY, homeId).catch(() => {});
     // Reset snapshot để force notify ngay khi switch home
     this.lastDeviceSnapshot = "";
@@ -159,6 +166,7 @@ export class FirebaseService {
   /** Gọi khi logout — xóa activeHomeId khỏi storage và dừng sync */
   public async clearActiveHome(): Promise<void> {
     this.activeHomeId = "home_main";
+    this.syncGeneration++;
     await secureStorage.removeItem(ACTIVE_HOME_KEY).catch(() => {});
     this.stopSync();
     this.setConnectionStatus("offline");
@@ -398,6 +406,47 @@ export class FirebaseService {
     }
   }
 
+  /**
+   * Gửi hàng loạt lệnh cho nhiều thiết bị trong kịch bản (Scene) hoặc Tắt/Bật toàn bộ
+   * Tránh burst HTTP flood bằng cách gom nhóm và track kết quả.
+   */
+  public async sendBatchCommands(
+    items: BatchCommandItem[],
+    requestedBy: string,
+    homeId?: string
+  ): Promise<{ successCount: number; failedCount: number; commandIds: string[] }> {
+    const targetHome = homeId || this.activeHomeId;
+    const results = {
+      successCount: 0,
+      failedCount: 0,
+      commandIds: [] as string[],
+    };
+
+    if (this.config.isDemoMode || !this.config.databaseURL) {
+      results.successCount = items.length;
+      results.commandIds = items.map(() => generateCommandId());
+      return results;
+    }
+
+    const promises = items.map(async (item) => {
+      const cmdId = await this.sendCommand(
+        item.deviceId,
+        item.command,
+        requestedBy,
+        targetHome
+      );
+      if (cmdId) {
+        results.successCount++;
+        results.commandIds.push(cmdId);
+      } else {
+        results.failedCount++;
+      }
+    });
+
+    await Promise.allSettled(promises);
+    return results;
+  }
+
   public async saveDevice(device: Device, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
@@ -565,8 +614,51 @@ export class FirebaseService {
     }
   }
 
-  // ─── Homes (meta) ────────────────────────────────────────────────────────
+  // ─── Homes Discovery & Meta ──────────────────────────────────────────────
 
+  /**
+   * Lấy danh mục các nhà mà user tham gia: /users/{uid}/homes
+   * Đây là API chuẩn để discovery nhà theo RBAC (thay vì query toàn cục /homes).
+   */
+  public async fetchUserHomes(uid: string): Promise<UserHomeIndex[] | null> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return null;
+    try {
+      const response = await this.requestWithAuth(`/users/${uid}/homes`, { method: "GET" });
+      if (response.ok) {
+        const data = await response.json();
+        if (!data) return [];
+        return Object.entries(data).map(([id, val]: [string, any]) => ({
+          id,
+          name: val?.name || id,
+          role: val?.role || "member",
+          address: val?.address,
+          icon: val?.icon,
+          joinedAt: val?.joinedAt,
+        }));
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Lấy metadata của ngôi nhà cụ thể: /homes/{homeId}/meta
+   */
+  public async fetchHomeMeta(homeId?: string): Promise<HomeMeta | null> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return null;
+    try {
+      const response = await this.requestWithAuth(`${this.homePath(homeId)}/meta`, {
+        method: "GET",
+      });
+      if (response.ok) return await response.json();
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fallback đọc /homes nếu đang ở môi trường test/legacy */
   public async fetchHomes(): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
@@ -578,33 +670,78 @@ export class FirebaseService {
     }
   }
 
-  public async saveHome(home: {
-    id: string;
-    name: string;
-    address?: string;
-    icon?: string;
-    ownerUid?: string;
-    createdAt?: string;
-  }): Promise<boolean> {
+  /**
+   * Tạo / Cập nhật home:
+   * 1. Ghi /homes/{homeId}/meta
+   * 2. Ghi /users/{ownerUid}/homes/{homeId} (User Home Index)
+   * 3. Ghi /homes/{homeId}/members/{ownerUid} (Role Owner)
+   */
+  public async saveHome(
+    home: {
+      id: string;
+      name: string;
+      address?: string;
+      icon?: string;
+      ownerUid?: string;
+      createdAt?: string;
+    },
+    userUid?: string
+  ): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
+      // 1. Lưu meta của home
       const response = await this.requestWithAuth(`/homes/${home.id}/meta`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(home),
       });
-      return response.ok;
+      if (!response.ok) return false;
+
+      const uid = userUid || home.ownerUid;
+      if (uid) {
+        // 2. Ghi vào index nhà của user
+        await this.requestWithAuth(`/users/${uid}/homes/${home.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: home.id,
+            name: home.name,
+            role: "owner",
+            address: home.address || "",
+            icon: home.icon || "home",
+            joinedAt: home.createdAt || new Date().toISOString(),
+          }),
+        }).catch(() => {});
+
+        // 3. Ghi quyền owner vào members của home
+        await this.requestWithAuth(`/homes/${home.id}/members/${uid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: uid,
+            role: "owner",
+            createdAt: home.createdAt || new Date().toISOString(),
+          }),
+        }).catch(() => {});
+      }
+
+      return true;
     } catch {
       return false;
     }
   }
 
-  public async removeHome(homeId: string): Promise<boolean> {
+  public async removeHome(homeId: string, userUid?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(`/homes/${homeId}`, {
         method: "DELETE",
       });
+      if (userUid) {
+        await this.requestWithAuth(`/users/${userUid}/homes/${homeId}`, {
+          method: "DELETE",
+        }).catch(() => {});
+      }
       return response.ok;
     } catch {
       return false;
@@ -838,7 +975,14 @@ export class FirebaseService {
 
     // Poll thiết bị mỗi 3 giây theo activeHomeId
     this.pollInterval = setInterval(async () => {
-      const result = await this.fetchDevicesDetailed();
+      const currentGen = this.syncGeneration;
+      const targetHome = this.activeHomeId;
+      const result = await this.fetchDevicesDetailed(targetHome);
+
+      // Nếu đã chuyển home hoặc sync generation thay đổi trong lúc chờ fetch, bỏ qua response này
+      if (currentGen !== this.syncGeneration || targetHome !== this.activeHomeId) {
+        return;
+      }
 
       if (!result.ok) {
         this.consecutiveFailures++;
@@ -867,7 +1011,14 @@ export class FirebaseService {
 
     // Poll cảnh báo mỗi 5 giây theo activeHomeId
     this.alertPollInterval = setInterval(async () => {
-      const result = await this.fetchAlertsDetailed();
+      const currentGen = this.syncGeneration;
+      const targetHome = this.activeHomeId;
+      const result = await this.fetchAlertsDetailed(targetHome);
+
+      if (currentGen !== this.syncGeneration || targetHome !== this.activeHomeId) {
+        return;
+      }
+
       if (!result.ok) return;
       const alerts = this.normalizeAlerts(result.data);
       const snapshot = JSON.stringify(alerts);

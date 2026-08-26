@@ -200,7 +200,7 @@ export const ManageHomeScreen: React.FC = () => {
 
     // 3. Sync from Firebase Remote
     try {
-      const remoteMembers = await firebaseService.fetchMembers();
+      const remoteMembers = await firebaseService.fetchMembers(activeHomeId);
       if (remoteMembers && Object.keys(remoteMembers).length > 0) {
         const list: SimpleMember[] = Object.values(remoteMembers);
         setMembersList(list);
@@ -211,18 +211,36 @@ export const ManageHomeScreen: React.FC = () => {
     }
 
     try {
-      const remoteHomes = await firebaseService.fetchHomes();
-      if (remoteHomes && Object.keys(remoteHomes).length > 0) {
-        const list: HomeItem[] = Object.values(remoteHomes);
-        setHomes(list);
-        await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
+      if (user?.uid && !user.isDemo) {
+        const userHomes = await firebaseService.fetchUserHomes(user.uid);
+        if (userHomes && userHomes.length > 0) {
+          const list: HomeItem[] = userHomes.map((uh) => ({
+            id: uh.id,
+            name: uh.name,
+            address: uh.address || 'Việt Nam',
+            icon: (uh.icon as any) || 'home',
+            isCurrent: uh.id === activeHomeId,
+            devicesCount: uh.id === activeHomeId ? (overview.totalDevices || devices.length) : 0,
+            roomsCount: uh.id === activeHomeId ? rooms.length : 0,
+            createdAt: uh.joinedAt || new Date().toISOString(),
+          }));
+          setHomes(list);
+          await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
+        }
+      } else {
+        const remoteHomes = await firebaseService.fetchHomes();
+        if (remoteHomes && Object.keys(remoteHomes).length > 0) {
+          const list: HomeItem[] = Object.values(remoteHomes);
+          setHomes(list);
+          await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
+        }
       }
     } catch {
       // Fallback
     } finally {
       setIsLoading(false);
     }
-  }, [overview.homeName, overview.totalDevices, devices.length, rooms.length]);
+  }, [overview.homeName, overview.totalDevices, devices.length, rooms.length, activeHomeId, user]);
 
   useEffect(() => {
     loadHomesAndMembers();
@@ -272,7 +290,7 @@ export const ManageHomeScreen: React.FC = () => {
       const updated = [...homes, createdHome];
       setHomes(updated);
       await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(updated));
-      await firebaseService.saveHome(createdHome);
+      await firebaseService.saveHome(createdHome, user?.uid);
 
       dispatchModal({ type: 'RESET_ADD' });
       Alert.alert('Thành công', `Đã thêm ngôi nhà "${createdHome.name}" vào danh sách.`);
@@ -281,7 +299,7 @@ export const ManageHomeScreen: React.FC = () => {
     } finally {
       dispatchModal({ type: 'SET_CREATING', payload: false });
     }
-  }, [newHomeName, newHomeAddress, newHomeIcon, homes]);
+  }, [newHomeName, newHomeAddress, newHomeIcon, homes, user]);
 
   // Save Edited Home Name
   const handleSaveEditedHomeName = useCallback(async () => {

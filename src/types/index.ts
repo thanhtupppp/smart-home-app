@@ -201,13 +201,14 @@ export interface HomeOverview {
   avgHumidity: number;
   powerConsumptionWatts: number;
   securityStatus: 'armed' | 'disarmed' | 'alert';
+  airQuality?: string;
 }
 
 // ─── Connection Status ─────────────────────────────────────────────────────
 /** Trạng thái kết nối thật giữa app và Firebase RTDB */
 export type HomeConnectionStatus = 'connected' | 'reconnecting' | 'offline';
 
-// ─── Home Meta ─────────────────────────────────────────────────────────────
+// ─── Home Meta & User Index ───────────────────────────────────────────────
 /** Metadata của một ngôi nhà — lưu tại homes/{homeId}/meta */
 export interface HomeMeta {
   id: string;
@@ -216,4 +217,29 @@ export interface HomeMeta {
   icon?: string;
   createdAt: string;
   ownerUid: string;
+}
+
+/** Danh mục nhà của user — lưu tại users/{uid}/homes/{homeId} */
+export interface UserHomeIndex {
+  id: string;
+  name: string;
+  role: AuthRole;
+  address?: string;
+  icon?: string;
+  joinedAt?: string;
+}
+
+// ─── Pending Command Tracking ──────────────────────────────────────────────
+export interface PendingCommandRecord {
+  commandId: string;
+  deviceId: string;
+  previousState: Device;
+  expiresAt: number;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+}
+
+// ─── Batch Commands ────────────────────────────────────────────────────────
+export interface BatchCommandItem {
+  deviceId: string;
+  command: DeviceCommand;
 }

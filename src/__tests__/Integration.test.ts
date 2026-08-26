@@ -152,5 +152,26 @@ describe('P1 Integration & Service Tests', () => {
       expect(cmdId2).toBeTruthy();
       expect(cmdId1).not.toBe(cmdId2);
     });
+
+    it('should dispatch batch commands and aggregate results', async () => {
+      const batchItems = [
+        { deviceId: 'dev_light_01', command: { type: 'power' as const, value: true } },
+        { deviceId: 'dev_light_02', command: { type: 'power' as const, value: false } },
+        { deviceId: 'dev_ac_01', command: { type: 'temperature' as const, value: 24 } },
+      ];
+
+      const result = await firebaseService.sendBatchCommands(batchItems, 'user_test', 'home_main');
+      expect(result.successCount).toBe(3);
+      expect(result.failedCount).toBe(0);
+      expect(result.commandIds.length).toBe(3);
+    });
+
+    it('should increment sync generation when switching active home', async () => {
+      const currentGen = (firebaseService as any).syncGeneration;
+      await firebaseService.setActiveHome('home_mountain_cabin');
+      const newGen = (firebaseService as any).syncGeneration;
+      expect(newGen).toBeGreaterThan(currentGen);
+      expect(firebaseService.getActiveHomeId()).toBe('home_mountain_cabin');
+    });
   });
 });

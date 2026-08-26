@@ -9,6 +9,7 @@ import {
   FirebaseConfig,
   HomeConnectionStatus,
   DeviceCommand,
+  PendingCommandRecord,
 } from '../types';
 import { initialDevices, initialRooms, initialScenes, initialAutomations, initialAlerts, initialHomeOverview } from '../services/mockData';
 import { firebaseService } from '../services/firebaseService';
@@ -87,10 +88,14 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     commandPendingRef.current = commandPending;
   }, [commandPending]);
 
-  /** Ref giữ snapshot devices để rollback optimistic state */
-  const devicesSnapshotRef = useRef<Record<string, Device>>({});
-  /** Ref giữ timeout handles để clear khi ack đến */
-  const commandTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /** Ref lưu thiết bị mới nhất để đọc đồng bộ */
+  const devicesRef = useRef<Device[]>([]);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  /** Ref lưu snapshot trạng thái thiết bị TRƯỚC KHI thực hiện từng lệnh để rollback chính xác khi timeout */
+  const pendingCommandsRef = useRef<Record<string, PendingCommandRecord>>({});
   /** Ref theo dõi alerts đã thông báo để không spam push */
   const notifiedAlertIdsRef = useRef<Set<string>>(new Set());
 
@@ -181,14 +186,15 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDevices(remoteDevices);
         safeStorage.setItem(devStorageKey, JSON.stringify(remoteDevices));
 
-        // Kiểm tra ack: clear timeouts nếu reported.lastAppliedCommandId khớp
+        // Kiểm tra ACK: nếu thiết bị báo lastAppliedCommandId thì clear timeout và xóa pending snapshot tương ứng
         for (const dev of remoteDevices) {
-          const pendingCmdId = commandPendingRef.current[dev.id];
-          if (pendingCmdId && dev.reported?.lastAppliedCommandId === pendingCmdId) {
-            if (commandTimeoutsRef.current[pendingCmdId]) {
-              clearTimeout(commandTimeoutsRef.current[pendingCmdId]);
-              delete commandTimeoutsRef.current[pendingCmdId];
+          const appliedCmdId = dev.reported?.lastAppliedCommandId;
+          if (appliedCmdId && pendingCommandsRef.current[appliedCmdId]) {
+            const pendingRec = pendingCommandsRef.current[appliedCmdId];
+            if (pendingRec.timeoutHandle) {
+              clearTimeout(pendingRec.timeoutHandle);
             }
+            delete pendingCommandsRef.current[appliedCmdId];
           }
         }
 
@@ -213,13 +219,6 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribe();
     };
   }, [isConfigReady, activeHomeId]);
-
-  // Snapshot devices để rollback khi command timeout
-  useEffect(() => {
-    const map: Record<string, Device> = {};
-    for (const d of devices) map[d.id] = d;
-    devicesSnapshotRef.current = map;
-  }, [devices]);
 
   // Update room active counts and overview whenever devices change
   useEffect(() => {
@@ -252,40 +251,71 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [devices]);
 
   /**
-   * Gửi command qua firebaseService.sendCommand() với optimistic update + offline queue.
+   * Thực thi lệnh nguyên tử: Chụp previousState -> Optimistic update UI -> Gửi cloud/queue -> Rollback chính xác khi timeout
    */
-  const sendDeviceCommand = useCallback(
-    async (deviceId: string, command: DeviceCommand) => {
+  const executeOptimisticCommand = useCallback(
+    async (
+      deviceId: string,
+      command: DeviceCommand,
+      optimisticPatch: Partial<Device>
+    ) => {
       const user = authService.getCurrentUser();
       const uid = user?.uid || 'demo';
+      const currentDev = devicesRef.current.find((d) => d.id === deviceId);
+      if (!currentDev) return;
 
-      // Nếu đang offline -> đưa vào offline command queue
+      const previousState: Device = { ...currentDev };
+
+      // 1. Cập nhật UI optimistic
+      setDevices((prev) =>
+        prev.map((dev) => (dev.id === deviceId ? { ...dev, ...optimisticPatch } : dev))
+      );
+
+      // 2. Nếu offline -> đưa vào offline command queue
       if (connectionStatus === 'offline') {
-        await commandQueueService.enqueue(deviceId, command, uid);
+        await commandQueueService.enqueue(deviceId, command, uid, activeHomeId);
         return;
       }
 
-      const commandId = await firebaseService.sendCommand(deviceId, command, uid);
+      // 3. Gửi lệnh tới Firebase RTDB
+      const commandId = await firebaseService.sendCommand(
+        deviceId,
+        command,
+        uid,
+        activeHomeId
+      );
+
       if (!commandId) {
-        // Fallback: đưa vào queue để thử lại khi có mạng
-        await commandQueueService.enqueue(deviceId, command, uid);
+        // Gửi thất bại -> fallback đưa vào queue offline
+        await commandQueueService.enqueue(deviceId, command, uid, activeHomeId);
         return;
       }
 
-      // Log event
-      firebaseService.logEvent({
-        type: 'device_command',
-        title: `Lệnh ${command.type}`,
-        description: `Người dùng ${user?.displayName || 'User'} gửi lệnh ${command.type} tới ${deviceId}`,
-        actor: user?.displayName || 'App',
-      });
+      // 4. Log event
+      firebaseService.logEvent(
+        {
+          type: 'device_command',
+          title: `Lệnh ${command.type}`,
+          description: `Người dùng ${user?.displayName || 'User'} gửi lệnh ${command.type} tới ${deviceId}`,
+          actor: user?.displayName || 'App',
+        },
+        activeHomeId
+      ).catch(() => {});
 
-      // Track pending
+      // 5. Đánh dấu pending trên UI
       setCommandPending((prev) => ({ ...prev, [deviceId]: commandId }));
 
-      // Đặt timeout rollback sau 15s nếu thiết bị không ack
+      // 6. Đặt timeout rollback sau 15s nếu thiết bị không ACK
       const timeoutHandle = setTimeout(async () => {
-        if (commandPendingRef.current[deviceId] === commandId) {
+        const pending = pendingCommandsRef.current[commandId];
+        if (pending) {
+          delete pendingCommandsRef.current[commandId];
+
+          // Rollback chính xác về previousState đã chụp trước lệnh này
+          setDevices((prevDevs) =>
+            prevDevs.map((d) => (d.id === deviceId ? pending.previousState : d))
+          );
+
           setCommandPending((prev) => {
             if (prev[deviceId] !== commandId) return prev;
             const updated = { ...prev };
@@ -293,205 +323,275 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return updated;
           });
 
-          // Rollback về trạng thái trước lệnh bên ngoài state updater
-          const snapshot = devicesSnapshotRef.current[deviceId];
-          if (snapshot) {
-            setDevices((prevDevs) =>
-              prevDevs.map((d) => (d.id === deviceId ? snapshot : d))
-            );
-          }
-          await firebaseService.updateCommandStatus(commandId, 'timeout');
+          await firebaseService.updateCommandStatus(commandId, 'timeout', activeHomeId);
         }
-
-        delete commandTimeoutsRef.current[commandId];
       }, COMMAND_TIMEOUT_MS);
 
-      commandTimeoutsRef.current[commandId] = timeoutHandle;
+      pendingCommandsRef.current[commandId] = {
+        commandId,
+        deviceId,
+        previousState,
+        expiresAt: Date.now() + COMMAND_TIMEOUT_MS,
+        timeoutHandle,
+      };
     },
-    [connectionStatus]
+    [connectionStatus, activeHomeId]
   );
 
-  const toggleDevice = useCallback((id: string) => {
-    const currentDev = devices.find((d) => d.id === id);
-    if (!currentDev) return;
-    const nextState = !currentDev.isOn;
+  const toggleDevice = useCallback(
+    (id: string) => {
+      const currentDev = devicesRef.current.find((d) => d.id === id);
+      if (!currentDev) return;
+      const nextState = !currentDev.isOn;
+      executeOptimisticCommand(id, { type: 'power', value: nextState }, { isOn: nextState });
+    },
+    [executeOptimisticCommand]
+  );
 
-    setDevices((prev) =>
-      prev.map((dev) => (dev.id === id ? { ...dev, isOn: nextState } : dev))
-    );
-    sendDeviceCommand(id, { type: 'power', value: nextState });
-  }, [devices, sendDeviceCommand]);
+  const updateDevice = useCallback(
+    (id: string, updates: Partial<Device>) => {
+      if (updates.isOn !== undefined) {
+        executeOptimisticCommand(id, { type: 'power', value: updates.isOn }, updates);
+      } else if (updates.brightness !== undefined) {
+        setDevices((prev) =>
+          prev.map((dev) => (dev.id === id ? { ...dev, ...updates } : dev))
+        );
+        commandQueueService.debounce(`brightness_${id}`, () => {
+          executeOptimisticCommand(
+            id,
+            { type: 'brightness', value: updates.brightness! },
+            updates
+          );
+        }, 250);
+      } else if (updates.temperature !== undefined) {
+        setDevices((prev) =>
+          prev.map((dev) => (dev.id === id ? { ...dev, ...updates } : dev))
+        );
+        commandQueueService.debounce(`temp_${id}`, () => {
+          executeOptimisticCommand(
+            id,
+            { type: 'temperature', value: updates.temperature! },
+            updates
+          );
+        }, 300);
+      } else if (updates.color !== undefined) {
+        setDevices((prev) =>
+          prev.map((dev) => (dev.id === id ? { ...dev, ...updates } : dev))
+        );
+        commandQueueService.debounce(`color_${id}`, () => {
+          executeOptimisticCommand(
+            id,
+            {
+              type: 'rgb',
+              color: updates.color!,
+              brightness: updates.brightness,
+              mode: updates.rgbMode,
+            },
+            updates
+          );
+        }, 300);
+      } else if (updates.acMode !== undefined) {
+        executeOptimisticCommand(id, { type: 'acMode', value: updates.acMode }, updates);
+      } else if (updates.fanSpeed !== undefined) {
+        executeOptimisticCommand(id, { type: 'fanSpeed', value: updates.fanSpeed }, updates);
+      } else {
+        setDevices((prev) =>
+          prev.map((dev) => (dev.id === id ? { ...dev, ...updates } : dev))
+        );
+        firebaseService.syncDeviceState({ id, ...updates }, activeHomeId);
+      }
+    },
+    [executeOptimisticCommand, activeHomeId]
+  );
 
-  const updateDevice = useCallback((id: string, updates: Partial<Device>) => {
-    setDevices((prev) =>
-      prev.map((dev) => (dev.id === id ? { ...dev, ...updates } : dev))
-    );
-
-    if (updates.isOn !== undefined) {
-      sendDeviceCommand(id, { type: 'power', value: updates.isOn });
-    } else if (updates.brightness !== undefined) {
-      commandQueueService.debounce(`brightness_${id}`, () => {
-        sendDeviceCommand(id, { type: 'brightness', value: updates.brightness! });
-      }, 250);
-    } else if (updates.temperature !== undefined) {
-      commandQueueService.debounce(`temp_${id}`, () => {
-        sendDeviceCommand(id, { type: 'temperature', value: updates.temperature! });
-      }, 300);
-    } else if (updates.color !== undefined) {
-      commandQueueService.debounce(`color_${id}`, () => {
-        sendDeviceCommand(id, {
-          type: 'rgb',
-          color: updates.color!,
-          brightness: updates.brightness,
-          mode: updates.rgbMode,
-        });
-      }, 300);
-    } else if (updates.acMode !== undefined) {
-      sendDeviceCommand(id, { type: 'acMode', value: updates.acMode });
-    } else if (updates.fanSpeed !== undefined) {
-      sendDeviceCommand(id, { type: 'fanSpeed', value: updates.fanSpeed });
-    } else {
-      firebaseService.syncDeviceState({ id, ...updates });
-    }
-  }, [sendDeviceCommand]);
-
-  const turnAllDevices = useCallback((isOn: boolean, roomId?: string) => {
-    const targetDevices = devices.filter((d) => !roomId || d.roomId === roomId);
-
-    setDevices((prev) =>
-      prev.map((dev) => {
-        if (!roomId || dev.roomId === roomId) {
-          return { ...dev, isOn };
-        }
-        return dev;
-      })
-    );
-
-    for (const dev of targetDevices) {
-      sendDeviceCommand(dev.id, { type: 'power', value: isOn });
-    }
-  }, [devices, sendDeviceCommand]);
-
-  const activateScene = useCallback((sceneId: string) => {
-    setScenes((prev) =>
-      prev.map((s) => ({ ...s, isActive: s.id === sceneId }))
-    );
-
-    setTimeout(() => {
-      setScenes((prev) =>
-        prev.map((s) => (s.id === sceneId ? { ...s, isActive: false } : s))
+  const turnAllDevices = useCallback(
+    async (isOn: boolean, roomId?: string) => {
+      const targetDevices = devicesRef.current.filter(
+        (d) => !roomId || d.roomId === roomId
       );
-    }, 3000);
+      if (targetDevices.length === 0) return;
 
-    const scene = scenes.find((s) => s.id === sceneId);
-    firebaseService.logEvent({
-      type: 'scene_activated',
-      title: `Kích hoạt Ngữ cảnh`,
-      description: `Ngữ cảnh "${scene?.name || sceneId}" đã được kích hoạt`,
-      actor: authService.getCurrentUser()?.displayName || 'User',
-    });
-
-    if (scene?.actions && scene.actions.length > 0) {
-      setDevices((prevDevs) =>
-        prevDevs.map((d) => {
-          const matchingAction = scene.actions?.find((a) => a.deviceId === d.id);
-          if (!matchingAction) return d;
-          return { ...d, ...matchingAction.patch };
+      // Optimistic update all targets
+      setDevices((prev) =>
+        prev.map((dev) => {
+          if (!roomId || dev.roomId === roomId) {
+            return { ...dev, isOn };
+          }
+          return dev;
         })
       );
 
-      for (const action of scene.actions) {
-        const patch = action.patch;
-        if (patch.isOn !== undefined) {
-          sendDeviceCommand(action.deviceId, { type: 'power', value: patch.isOn });
+      const user = authService.getCurrentUser();
+      const uid = user?.uid || 'demo';
+
+      const batchItems = targetDevices.map((dev) => ({
+        deviceId: dev.id,
+        command: { type: 'power' as const, value: isOn },
+      }));
+
+      await firebaseService.sendBatchCommands(batchItems, uid, activeHomeId);
+    },
+    [activeHomeId]
+  );
+
+  const activateScene = useCallback(
+    async (sceneId: string) => {
+      setScenes((prev) =>
+        prev.map((s) => ({ ...s, isActive: s.id === sceneId }))
+      );
+
+      setTimeout(() => {
+        setScenes((prev) =>
+          prev.map((s) => (s.id === sceneId ? { ...s, isActive: false } : s))
+        );
+      }, 3000);
+
+      const scene = scenes.find((s) => s.id === sceneId);
+      const user = authService.getCurrentUser();
+      const uid = user?.uid || 'demo';
+
+      firebaseService.logEvent(
+        {
+          type: 'scene_activated',
+          title: `Kích hoạt Ngữ cảnh`,
+          description: `Ngữ cảnh "${scene?.name || sceneId}" đã được kích hoạt`,
+          actor: user?.displayName || 'User',
+        },
+        activeHomeId
+      ).catch(() => {});
+
+      if (scene?.actions && scene.actions.length > 0) {
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => {
+            const matchingAction = scene.actions?.find((a) => a.deviceId === d.id);
+            if (!matchingAction) return d;
+            return { ...d, ...matchingAction.patch };
+          })
+        );
+
+        const batchItems: { deviceId: string; command: DeviceCommand }[] = [];
+        for (const action of scene.actions) {
+          const patch = action.patch;
+          if (patch.isOn !== undefined) {
+            batchItems.push({ deviceId: action.deviceId, command: { type: 'power', value: patch.isOn } });
+          }
+          if (patch.brightness !== undefined) {
+            batchItems.push({ deviceId: action.deviceId, command: { type: 'brightness', value: patch.brightness } });
+          }
+          if (patch.temperature !== undefined) {
+            batchItems.push({ deviceId: action.deviceId, command: { type: 'temperature', value: patch.temperature } });
+          }
+          if (patch.color !== undefined) {
+            batchItems.push({
+              deviceId: action.deviceId,
+              command: {
+                type: 'rgb',
+                color: patch.color,
+                brightness: patch.brightness,
+                mode: patch.rgbMode,
+              },
+            });
+          }
+          if (patch.acMode !== undefined) {
+            batchItems.push({ deviceId: action.deviceId, command: { type: 'acMode', value: patch.acMode } });
+          }
         }
-        if (patch.brightness !== undefined) {
-          sendDeviceCommand(action.deviceId, { type: 'brightness', value: patch.brightness });
-        }
-        if (patch.temperature !== undefined) {
-          sendDeviceCommand(action.deviceId, { type: 'temperature', value: patch.temperature });
-        }
-        if (patch.color !== undefined) {
-          sendDeviceCommand(action.deviceId, {
-            type: 'rgb',
-            color: patch.color,
-            brightness: patch.brightness,
-            mode: patch.rgbMode,
-          });
-        }
-        if (patch.acMode !== undefined) {
-          sendDeviceCommand(action.deviceId, { type: 'acMode', value: patch.acMode });
+        await firebaseService.sendBatchCommands(batchItems, uid, activeHomeId);
+      } else {
+        if (sceneId === 'scene_arrive_home') {
+          const targetDevs = devicesRef.current.filter(
+            (d) =>
+              d.roomId === 'room_living' &&
+              (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')
+          );
+          setDevices((prevDevs) =>
+            prevDevs.map((d) => {
+              if (
+                d.roomId === 'room_living' &&
+                (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')
+              ) {
+                return { ...d, isOn: true };
+              }
+              return d;
+            })
+          );
+          const batchItems = targetDevs.map((d) => ({
+            deviceId: d.id,
+            command: { type: 'power' as const, value: true },
+          }));
+          await firebaseService.sendBatchCommands(batchItems, uid, activeHomeId);
+        } else if (sceneId === 'scene_leave_home') {
+          await turnAllDevices(false);
+        } else if (sceneId === 'scene_sleep') {
+          const livingLights = devicesRef.current.filter(
+            (d) => (d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living'
+          );
+          const masterAc = devicesRef.current.find(
+            (d) => d.type === 'ac' && d.roomId === 'room_bedroom_master'
+          );
+          setDevices((prevDevs) =>
+            prevDevs.map((d) => {
+              if ((d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living') {
+                return { ...d, isOn: false };
+              }
+              if (d.type === 'ac' && d.roomId === 'room_bedroom_master') {
+                return { ...d, isOn: true, temperature: 26, acMode: 'cool' };
+              }
+              return d;
+            })
+          );
+          const batchItems: { deviceId: string; command: DeviceCommand }[] = livingLights.map((d) => ({
+            deviceId: d.id,
+            command: { type: 'power' as const, value: false },
+          }));
+          if (masterAc) {
+            batchItems.push(
+              { deviceId: masterAc.id, command: { type: 'temperature', value: 26 } },
+              { deviceId: masterAc.id, command: { type: 'power', value: true } }
+            );
+          }
+          await firebaseService.sendBatchCommands(batchItems, uid, activeHomeId);
+        } else if (sceneId === 'scene_movie') {
+          const rgbLights = devicesRef.current.filter((d) => d.type === 'rgb_light');
+          const livingNormalLights = devicesRef.current.filter(
+            (d) => d.type === 'light' && d.roomId === 'room_living'
+          );
+          setDevices((prevDevs) =>
+            prevDevs.map((d) => {
+              if (d.type === 'rgb_light') {
+                return { ...d, isOn: true, color: '#7c4dff', brightness: 25, rgbMode: 'breathing' };
+              }
+              if (d.type === 'light' && d.roomId === 'room_living') {
+                return { ...d, isOn: false };
+              }
+              return d;
+            })
+          );
+          const batchItems: { deviceId: string; command: DeviceCommand }[] = [
+            ...rgbLights.map((d) => ({
+              deviceId: d.id,
+              command: {
+                type: 'rgb' as const,
+                color: '#7c4dff',
+                brightness: 25,
+                mode: 'breathing' as const,
+              },
+            })),
+            ...rgbLights.map((d) => ({
+              deviceId: d.id,
+              command: { type: 'power' as const, value: true },
+            })),
+            ...livingNormalLights.map((d) => ({
+              deviceId: d.id,
+              command: { type: 'power' as const, value: false },
+            })),
+          ];
+          await firebaseService.sendBatchCommands(batchItems, uid, activeHomeId);
         }
       }
-    } else {
-      if (sceneId === 'scene_arrive_home') {
-        const targetDevs = devices.filter(
-          (d) => d.roomId === 'room_living' && (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')
-        );
-        setDevices((prevDevs) =>
-          prevDevs.map((d) => {
-            if (d.roomId === 'room_living' && (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')) {
-              return { ...d, isOn: true };
-            }
-            return d;
-          })
-        );
-        for (const d of targetDevs) {
-          sendDeviceCommand(d.id, { type: 'power', value: true });
-        }
-      } else if (sceneId === 'scene_leave_home') {
-        turnAllDevices(false);
-      } else if (sceneId === 'scene_sleep') {
-        const livingLights = devices.filter(
-          (d) => (d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living'
-        );
-        const masterAc = devices.find(
-          (d) => d.type === 'ac' && d.roomId === 'room_bedroom_master'
-        );
-        setDevices((prevDevs) =>
-          prevDevs.map((d) => {
-            if ((d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living') {
-              return { ...d, isOn: false };
-            }
-            if (d.type === 'ac' && d.roomId === 'room_bedroom_master') {
-              return { ...d, isOn: true, temperature: 26, acMode: 'cool' };
-            }
-            return d;
-          })
-        );
-        for (const d of livingLights) {
-          sendDeviceCommand(d.id, { type: 'power', value: false });
-        }
-        if (masterAc) {
-          sendDeviceCommand(masterAc.id, { type: 'temperature', value: 26 });
-          sendDeviceCommand(masterAc.id, { type: 'power', value: true });
-        }
-      } else if (sceneId === 'scene_movie') {
-        const rgbLights = devices.filter((d) => d.type === 'rgb_light');
-        const livingNormalLights = devices.filter(
-          (d) => d.type === 'light' && d.roomId === 'room_living'
-        );
-        setDevices((prevDevs) =>
-          prevDevs.map((d) => {
-            if (d.type === 'rgb_light') {
-              return { ...d, isOn: true, color: '#7c4dff', brightness: 25, rgbMode: 'breathing' };
-            }
-            if (d.type === 'light' && d.roomId === 'room_living') {
-              return { ...d, isOn: false };
-            }
-            return d;
-          })
-        );
-        for (const d of rgbLights) {
-          sendDeviceCommand(d.id, { type: 'rgb', color: '#7c4dff', brightness: 25, mode: 'breathing' });
-          sendDeviceCommand(d.id, { type: 'power', value: true });
-        }
-        for (const d of livingNormalLights) {
-          sendDeviceCommand(d.id, { type: 'power', value: false });
-        }
-      }
-    }
-  }, [devices, scenes, sendDeviceCommand, turnAllDevices]);
+    },
+    [scenes, activeHomeId, turnAllDevices]
+  );
 
   // ─── Scene CRUD ──────────────────────────────────────────────────────────
 
@@ -775,20 +875,32 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAlerts((prev) => prev.map((a) => (a.isRead ? a : { ...a, isRead: true })));
   }, [alerts, activeHomeId]);
 
-  /** Chuyển sang nhà khác — hủy timeouts, reset cache và restart Firebase sync */
+  /** Chuyển sang nhà khác — hủy timeouts, reset cache, cập nhật meta và restart Firebase sync */
   const setActiveHomeId = useCallback(async (homeId: string) => {
     if (homeId === activeHomeId) return;
 
-    // 1. Hủy các command timeout pending của nhà cũ
-    Object.values(commandTimeoutsRef.current).forEach(clearTimeout);
-    commandTimeoutsRef.current = {};
+    // 1. Hủy toàn bộ pending command timeouts của nhà cũ
+    Object.values(pendingCommandsRef.current).forEach((p) => {
+      if (p.timeoutHandle) clearTimeout(p.timeoutHandle);
+    });
+    pendingCommandsRef.current = {};
     setCommandPending({});
 
     // 2. Chuyển active home trong context & firebaseService
     setActiveHomeIdState(homeId);
     await firebaseService.setActiveHome(homeId);
 
-    // 3. Nạp cache scoped theo (user, newHomeId)
+    // 3. Cập nhật metadata của ngôi nhà mới vào overview
+    const isDemo = authService.getCurrentUser()?.isDemo;
+    if (!isDemo) {
+      firebaseService.fetchHomeMeta(homeId).then((meta) => {
+        if (meta?.name) {
+          setOverview((prev) => ({ ...prev, homeName: meta.name }));
+        }
+      }).catch(() => {});
+    }
+
+    // 4. Nạp cache scoped theo (user, newHomeId)
     const user = authService.getCurrentUser();
     const devKey = getScopedCacheKey('devices', user?.uid, homeId);
     const roomKey = getScopedCacheKey('rooms', user?.uid, homeId);
@@ -803,12 +915,12 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         safeStorage.getItem(autoKey),
       ]);
       setDevices(cachedDevs ? JSON.parse(cachedDevs) : []);
-      setRooms(cachedRooms ? JSON.parse(cachedRooms) : initialRooms);
-      setScenes(cachedScenes ? JSON.parse(cachedScenes) : initialScenes);
-      setAutomations(cachedAutos ? JSON.parse(cachedAutos) : initialAutomations);
+      setRooms(cachedRooms ? JSON.parse(cachedRooms) : (isDemo ? initialRooms : []));
+      setScenes(cachedScenes ? JSON.parse(cachedScenes) : (isDemo ? initialScenes : []));
+      setAutomations(cachedAutos ? JSON.parse(cachedAutos) : (isDemo ? initialAutomations : []));
     } catch {
       setDevices([]);
-      setRooms(initialRooms);
+      setRooms(isDemo ? initialRooms : []);
     }
   }, [activeHomeId]);
 
@@ -818,7 +930,9 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     return () => {
-      Object.values(commandTimeoutsRef.current).forEach(clearTimeout);
+      Object.values(pendingCommandsRef.current).forEach((p) => {
+        if (p.timeoutHandle) clearTimeout(p.timeoutHandle);
+      });
     };
   }, []);
 

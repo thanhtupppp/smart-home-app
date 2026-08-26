@@ -111,14 +111,20 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
         {device.type === 'sensor' ? (
           <StatusBadge label="Cảm biến" status="info" />
         ) : (
-          <View style={styles.switchWrapper}>
+          <Pressable
+            style={styles.switchWrapper}
+            onPress={(e) => {
+              e?.stopPropagation?.();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Switch
               value={device.isOn}
               onValueChange={onToggle}
               trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
               thumbColor={device.isOn ? '#2563EB' : '#F8FAFC'}
             />
-          </View>
+          </Pressable>
         )}
       </View>
 
