@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   StatusBar,
   ActivityIndicator,
@@ -81,14 +81,18 @@ export const RegisterScreen: React.FC = () => {
       >
         {/* Top bar with back button */}
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={[styles.backBtn, NeuStyles.raised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.backBtn,
+              NeuStyles.raised,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={() => navigation.goBack()}
             accessibilityRole="button"
             accessibilityLabel="Quay lại"
           >
             <Ionicons name="arrow-back" size={20} color="#1E293B" />
-          </TouchableOpacity>
+          </Pressable>
           <Text style={[Typography.titleMedium, styles.topBarTitle]}>Tạo tài khoản mới</Text>
           <View style={{ width: 40 }} />
         </View>
@@ -146,7 +150,7 @@ export const RegisterScreen: React.FC = () => {
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
-              <TouchableOpacity
+              <Pressable
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeBtn}
               >
@@ -155,7 +159,7 @@ export const RegisterScreen: React.FC = () => {
                   size={18}
                   color="#64748B"
                 />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             {/* Confirm Password Field */}
@@ -183,13 +187,16 @@ export const RegisterScreen: React.FC = () => {
             </View>
 
             {/* Register Button */}
-            <TouchableOpacity
-              style={[styles.primaryBtn, NeuStyles.raised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                NeuStyles.raised,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleRegister}
               disabled={isLoading}
               accessibilityRole="button"
               accessibilityLabel="Đăng ký tài khoản"
-              activeOpacity={0.8}
             >
               {isLoading ? (
                 <ActivityIndicator color="#FFFFFF" size="small" />
@@ -199,15 +206,15 @@ export const RegisterScreen: React.FC = () => {
                   <Text style={styles.primaryBtnText}>Đăng ký tài khoản</Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Back to Login link */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>Đã có tài khoản?</Text>
-            <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Pressable onPress={() => navigation.goBack()}>
               <Text style={styles.loginLink}>Đăng nhập ngay</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

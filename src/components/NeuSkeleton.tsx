@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Animated, ViewStyle, StyleProp } from 'react-native';
 import { BorderRadius, NeuStyles } from '../theme';
 
@@ -15,7 +15,7 @@ export const NeuSkeleton: React.FC<NeuSkeletonProps> = ({
   borderRadius = BorderRadius.md,
   style,
 }) => {
-  const opacity = useRef(new Animated.Value(0.4)).current;
+  const [opacity] = useState(() => new Animated.Value(0.4));
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -54,7 +54,7 @@ export const NeuSkeleton: React.FC<NeuSkeletonProps> = ({
   );
 };
 
-export const CockpitSkeleton: React.FC = () => {
+const CockpitSkeleton: React.FC = () => {
   return (
     <View style={[styles.cardWrapper, NeuStyles.raised]}>
       <View style={styles.headerRow}>

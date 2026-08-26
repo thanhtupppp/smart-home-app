@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
   ActivityIndicator,
@@ -217,12 +217,14 @@ export const SettingsScreen: React.FC = () => {
 
   const renderMenuItemRow = (item: MenuItem, isLast: boolean) => (
     <View key={item.id}>
-      <TouchableOpacity
-        style={styles.menuItem}
+      <Pressable
+        style={({ pressed }) => [
+          styles.menuItem,
+          pressed && { opacity: 0.85 },
+        ]}
         onPress={() => (item.onPress ? item.onPress() : handleNavigate(item.screen))}
         accessibilityRole="button"
         accessibilityLabel={item.title}
-        activeOpacity={0.85}
       >
         <View style={styles.menuLeft}>
           <View style={[styles.menuIconBox, NeuStyles.cavity]}>
@@ -240,7 +242,7 @@ export const SettingsScreen: React.FC = () => {
         </View>
 
         <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-      </TouchableOpacity>
+      </Pressable>
 
       {!isLast && <View style={styles.divider} />}
     </View>
@@ -262,10 +264,13 @@ export const SettingsScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* User Profile Banner */}
-        <TouchableOpacity
-          style={[styles.profileCard, NeuStyles.raised]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.profileCard,
+            NeuStyles.raised,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={() => navigation.navigate('MemberRoles')}
-          activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Xem thông tin phân quyền tài khoản"
         >
@@ -299,7 +304,7 @@ export const SettingsScreen: React.FC = () => {
             </View>
           </View>
           <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-        </TouchableOpacity>
+        </Pressable>
 
         {/* Section 1: Home Management */}
         <Text style={styles.sectionHeading}>QUẢN LÝ NGÔI NHÀ</Text>
@@ -328,12 +333,14 @@ export const SettingsScreen: React.FC = () => {
         {/* Section 4: System Actions */}
         <Text style={styles.sectionHeading}>HỆ THỐNG & CẬP NHẬT</Text>
         <View style={[styles.menuCard, NeuStyles.raised]}>
-          <TouchableOpacity
-            style={styles.menuItem}
+          <Pressable
+            style={({ pressed }) => [
+              styles.menuItem,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleCheckUpdate}
             accessibilityRole="button"
             accessibilityLabel="Kiểm tra bản cập nhật hệ thống"
-            activeOpacity={0.85}
           >
             <View style={styles.menuLeft}>
               <View style={[styles.menuIconBox, NeuStyles.cavity]}>
@@ -351,16 +358,18 @@ export const SettingsScreen: React.FC = () => {
             ) : (
               <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
             )}
-          </TouchableOpacity>
+          </Pressable>
 
           <View style={styles.divider} />
 
-          <TouchableOpacity
-            style={styles.menuItem}
+          <Pressable
+            style={({ pressed }) => [
+              styles.menuItem,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleLogout}
             accessibilityRole="button"
             accessibilityLabel="Đăng xuất tài khoản Firebase"
-            activeOpacity={0.85}
           >
             <View style={styles.menuLeft}>
               <View style={[styles.menuIconBox, NeuStyles.cavity]}>
@@ -374,7 +383,7 @@ export const SettingsScreen: React.FC = () => {
               </View>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         {/* Footer info */}

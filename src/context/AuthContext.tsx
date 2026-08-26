@@ -25,7 +25,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(authService.getCurrentUser());
+  const [user, setUser] = useState<AuthUser | null>(() => authService.getCurrentUser());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
@@ -88,11 +88,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async (): Promise<void> => {
     // Xóa home cache & local storage trước khi signOut để không leak data giữa sessions
-    const { firebaseService } = await import('../services/firebaseService');
-    const { safeStorage } = await import('../services/storageService');
-    await firebaseService.clearActiveHome();
-    await safeStorage.clear();
-    await authService.signOut();
+    const [{ firebaseService }, { safeStorage }] = await Promise.all([
+      import('../services/firebaseService'),
+      import('../services/storageService'),
+    ]);
+    await Promise.all([
+      firebaseService.clearActiveHome(),
+      safeStorage.clear(),
+      authService.signOut(),
+    ]);
   }, []);
 
   const resetPassword = useCallback(async (email: string, customApiKey?: string): Promise<boolean> => {

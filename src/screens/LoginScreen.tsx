@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   StatusBar,
   ActivityIndicator,
@@ -23,6 +23,7 @@ import { appConfig } from '../config/appConfig';
 
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -68,7 +69,7 @@ export const LoginScreen: React.FC = () => {
         scheme: 'tusmarthome',
       });
 
-      const nonce = Math.random().toString(36).substring(2);
+      const nonce = Crypto.randomUUID();
       const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&response_type=id_token%20token&scope=openid%20profile%20email&redirect_uri=${encodeURIComponent(
         redirectUri
       )}&nonce=${nonce}&prompt=select_account`;
@@ -159,7 +160,7 @@ export const LoginScreen: React.FC = () => {
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
-              <TouchableOpacity
+              <Pressable
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeBtn}
                 accessibilityRole="button"
@@ -170,25 +171,28 @@ export const LoginScreen: React.FC = () => {
                   size={18}
                   color="#64748B"
                 />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             {/* Forgot password */}
-            <TouchableOpacity
+            <Pressable
               onPress={() => navigation.navigate('ForgotPassword')}
               style={styles.forgotBtn}
             >
               <Text style={styles.forgotText}>Quên mật khẩu?</Text>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Login Button */}
-            <TouchableOpacity
-              style={[styles.primaryBtn, NeuStyles.raised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                NeuStyles.raised,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleLogin}
               disabled={isLoading}
               accessibilityRole="button"
               accessibilityLabel="Đăng nhập"
-              activeOpacity={0.8}
             >
               {isLoading ? (
                 <ActivityIndicator color="#FFFFFF" size="small" />
@@ -198,7 +202,7 @@ export const LoginScreen: React.FC = () => {
                   <Text style={styles.primaryBtnText}>Đăng nhập</Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Divider */}
             <View style={styles.dividerWrap}>
@@ -208,42 +212,48 @@ export const LoginScreen: React.FC = () => {
             </View>
 
             {/* Google Sign-in Button */}
-            <TouchableOpacity
-              style={[styles.googleBtn, NeuStyles.raised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.googleBtn,
+                NeuStyles.raised,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleGoogleLogin}
               disabled={isLoading}
               accessibilityRole="button"
               accessibilityLabel="Đăng nhập bằng Google"
-              activeOpacity={0.8}
             >
               <Ionicons name="logo-google" size={18} color="#EA4335" />
               <Text style={styles.googleBtnText}>Đăng nhập bằng Google</Text>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Demo Mode Button */}
-            <TouchableOpacity
-              style={[styles.demoBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.demoBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.8 },
+              ]}
               onPress={handleDemoLogin}
               disabled={isLoading}
               accessibilityRole="button"
               accessibilityLabel="Dùng thử chế độ Demo"
-              activeOpacity={0.8}
             >
               <Ionicons name="sparkles-outline" size={18} color="#2563EB" />
               <Text style={styles.demoBtnText}>Dùng thử chế độ Demo</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Register link */}
           <View style={styles.registerRow}>
             <Text style={styles.registerText}>Chưa có tài khoản?</Text>
-            <TouchableOpacity
+            <Pressable
               onPress={() => navigation.navigate('Register')}
               accessibilityRole="button"
               accessibilityLabel="Đăng ký tài khoản mới"
             >
               <Text style={styles.registerLink}>Đăng ký ngay</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

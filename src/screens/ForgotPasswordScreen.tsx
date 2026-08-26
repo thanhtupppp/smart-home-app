@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   StatusBar,
   ActivityIndicator,
@@ -51,14 +51,18 @@ export const ForgotPasswordScreen: React.FC = () => {
         style={styles.keyboardView}
       >
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={[styles.backBtn, NeuStyles.raised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.backBtn,
+              NeuStyles.raised,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={() => navigation.goBack()}
             accessibilityRole="button"
             accessibilityLabel="Quay lại"
           >
             <Ionicons name="arrow-back" size={20} color="#1E293B" />
-          </TouchableOpacity>
+          </Pressable>
           <Text style={[Typography.titleMedium, styles.topBarTitle]}>Khôi phục mật khẩu</Text>
           <View style={{ width: 40 }} />
         </View>
@@ -85,12 +89,17 @@ export const ForgotPasswordScreen: React.FC = () => {
                 <Text style={styles.successText}>
                   Vui lòng kiểm tra hộp thư đến (và thư mục rác/spam) của {email} để tiếp tục.
                 </Text>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, NeuStyles.raised, { marginTop: 16 }]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    NeuStyles.raised,
+                    { marginTop: 16 },
+                    pressed && { opacity: 0.85 },
+                  ]}
                   onPress={() => navigation.navigate('Login')}
                 >
                   <Text style={styles.primaryBtnText}>Quay lại Đăng nhập</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             ) : (
               <>
@@ -109,13 +118,16 @@ export const ForgotPasswordScreen: React.FC = () => {
                   />
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.primaryBtn, NeuStyles.raised]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    NeuStyles.raised,
+                    pressed && { opacity: 0.8 },
+                  ]}
                   onPress={handleReset}
                   disabled={isLoading}
                   accessibilityRole="button"
                   accessibilityLabel="Gửi liên kết khôi phục"
-                  activeOpacity={0.8}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
@@ -125,7 +137,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                       <Text style={styles.primaryBtnText}>Gửi liên kết khôi phục</Text>
                     </View>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               </>
             )}
           </View>

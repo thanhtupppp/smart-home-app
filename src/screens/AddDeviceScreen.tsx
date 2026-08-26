@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   TextInput,
   ActivityIndicator,
@@ -64,6 +64,22 @@ const DEVICE_TYPES: DeviceTypeOption[] = [
     icon: 'thermostat',
   },
 ];
+
+// Sinh thuộc tính mặc định phù hợp với từng loại thiết bị, tránh gán thừa trường
+const buildTypeDefaults = (type: DeviceType): Partial<Device> => {
+  switch (type) {
+    case 'light':
+      return { brightness: 80 };
+    case 'rgb_light':
+      return { brightness: 80, color: '#00E5FF', rgbMode: 'solid' };
+    case 'ac':
+      return { temperature: 24, acMode: 'cool' };
+    case 'sensor':
+      return { currentTemperature: undefined, humidity: undefined };
+    default:
+      return {};
+  }
+};
 
 export const AddDeviceScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
@@ -132,22 +148,6 @@ export const AddDeviceScreen: React.FC = () => {
       setIsScanning(false);
     }
   }, []);
-
-  // Sinh thuộc tính mặc định phù hợp với từng loại thiết bị, tránh gán thừa trường
-  const buildTypeDefaults = (type: DeviceType): Partial<Device> => {
-    switch (type) {
-      case 'light':
-        return { brightness: 80 };
-      case 'rgb_light':
-        return { brightness: 80, color: '#00E5FF', rgbMode: 'solid' };
-      case 'ac':
-        return { temperature: 24, acMode: 'cool' };
-      case 'sensor':
-        return { currentTemperature: undefined, humidity: undefined };
-      default:
-        return {};
-    }
-  };
 
   const handleStartPairing = useCallback(async () => {
     if (!wifiSsid.trim()) {
@@ -282,16 +282,16 @@ export const AddDeviceScreen: React.FC = () => {
             {DEVICE_TYPES.map((dt) => {
               const isSelected = selectedType === dt.type;
               return (
-                <TouchableOpacity
+                <Pressable
                   key={dt.type}
-                  style={[
+                  style={({ pressed }) => [
                     styles.typeCard,
                     isSelected ? [NeuStyles.pressed, styles.typeCardActive] : NeuStyles.raisedSoft,
+                    pressed && { opacity: 0.85 },
                   ]}
                   onPress={() => handleTypeSelect(dt.type, dt.name)}
                   accessibilityRole="button"
                   accessibilityLabel={`Chọn loại ${dt.name}`}
-                  activeOpacity={0.85}
                 >
                   <View style={[styles.typeIconBox, NeuStyles.cavity]}>
                     <MaterialIcons
@@ -309,20 +309,23 @@ export const AddDeviceScreen: React.FC = () => {
                   {isSelected && (
                     <Ionicons name="checkmark-circle" size={22} color="#2563EB" />
                   )}
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
 
-            <TouchableOpacity
-              style={[styles.nextBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.nextBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => setStep(2)}
               accessibilityRole="button"
               accessibilityLabel="Tiếp tục sang bước 2"
-              activeOpacity={0.85}
             >
               <Text style={styles.nextBtnText}>Tiếp tục</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
@@ -347,16 +350,16 @@ export const AddDeviceScreen: React.FC = () => {
                 {rooms.map((r) => {
                   const isSelected = selectedRoomId === r.id;
                   return (
-                    <TouchableOpacity
+                    <Pressable
                       key={r.id}
-                      style={[
+                      style={({ pressed }) => [
                         styles.roomChip,
                         isSelected ? [NeuStyles.pressed, styles.roomChipActive] : NeuStyles.cavity,
+                        pressed && { opacity: 0.85 },
                       ]}
                       onPress={() => setSelectedRoomId(r.id)}
                       accessibilityRole="button"
                       accessibilityLabel={`Chọn phòng ${r.name}`}
-                      activeOpacity={0.85}
                     >
                       <Text
                         style={[
@@ -366,22 +369,25 @@ export const AddDeviceScreen: React.FC = () => {
                       >
                         {r.name}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })}
               </View>
             </View>
 
-            <TouchableOpacity
-              style={[styles.nextBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.nextBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => setStep(3)}
               accessibilityRole="button"
               accessibilityLabel="Tiếp tục sang bước 3"
-              activeOpacity={0.85}
             >
               <Text style={styles.nextBtnText}>Tiếp tục</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
@@ -400,36 +406,39 @@ export const AddDeviceScreen: React.FC = () => {
                 <Text style={[Typography.titleMedium, styles.cardTitle]}>
                   WiFi nhà bạn (2.4GHz)
                 </Text>
-                <TouchableOpacity
-                  style={[styles.scanBtn, NeuStyles.raisedSoft]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.scanBtn,
+                    NeuStyles.raisedSoft,
+                    pressed && { opacity: 0.85 },
+                  ]}
                   onPress={handleScanWifiFromESP}
                   disabled={isScanning}
                   accessibilityRole="button"
                   accessibilityLabel="Quét mạng WiFi"
-                  activeOpacity={0.85}
                 >
                   {isScanning ? (
                     <ActivityIndicator size="small" color="#2563EB" />
                   ) : (
                     <Text style={styles.scanBtnText}>Quét WiFi</Text>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               </View>
 
               <View style={styles.wifiChipGrid}>
                 {scannedNetworks.map((net) => {
                   const isSelected = wifiSsid === net;
                   return (
-                    <TouchableOpacity
+                    <Pressable
                       key={net}
-                      style={[
+                      style={({ pressed }) => [
                         styles.wifiChip,
                         isSelected ? [NeuStyles.pressed, styles.wifiChipActive] : NeuStyles.cavity,
+                        pressed && { opacity: 0.85 },
                       ]}
                       onPress={() => setWifiSsid(net)}
                       accessibilityRole="button"
                       accessibilityLabel={`Chọn mạng WiFi ${net}`}
-                      activeOpacity={0.85}
                     >
                       <Ionicons
                         name="wifi"
@@ -444,7 +453,7 @@ export const AddDeviceScreen: React.FC = () => {
                       >
                         {net}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -469,13 +478,16 @@ export const AddDeviceScreen: React.FC = () => {
               />
             </View>
 
-            <TouchableOpacity
-              style={[styles.nextBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.nextBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={handleStartPairing}
               disabled={isConnecting}
               accessibilityRole="button"
               accessibilityLabel="Gửi cấu hình sang ESP32"
-              activeOpacity={0.85}
             >
               {isConnecting ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -485,7 +497,7 @@ export const AddDeviceScreen: React.FC = () => {
                   <Ionicons name="cloud-upload" size={18} color="#FFFFFF" />
                 </>
               )}
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
@@ -508,15 +520,18 @@ export const AddDeviceScreen: React.FC = () => {
                 : 'Thiết bị đã được kết nối vào WiFi nhà bạn và sẵn sàng điều khiển từ xa qua Firebase Realtime Database.'}
             </Text>
 
-            <TouchableOpacity
-              style={[styles.finishBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.finishBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => navigation.navigate('MainTabs')}
               accessibilityRole="button"
               accessibilityLabel="Hoàn tất và quay lại màn hình chính"
-              activeOpacity={0.85}
             >
               <Text style={styles.finishBtnText}>Về màn hình chính</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
       </ScrollView>

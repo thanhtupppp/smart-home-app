@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Typography, NeuStyles } from '../theme';
 
 interface SectionHeaderProps {
@@ -21,15 +21,18 @@ export const SectionHeader: React.FC<SectionHeaderProps> = React.memo(({
         {title}
       </Text>
       {actionLabel && onPress && (
-        <TouchableOpacity
-          style={[styles.pillLink, NeuStyles.cavity]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.pillLink,
+            NeuStyles.cavity,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={accessibilityLabel || actionLabel}
-          activeOpacity={0.85}
         >
           <Text style={styles.seeAllText}>{actionLabel}</Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
     </View>
   );

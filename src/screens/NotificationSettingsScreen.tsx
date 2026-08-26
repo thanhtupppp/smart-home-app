@@ -6,7 +6,7 @@ import {
   ScrollView,
   StatusBar,
   Switch,
-  TouchableOpacity,
+  Pressable,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -195,16 +195,19 @@ export const NotificationSettingsScreen: React.FC = () => {
         </View>
 
         {/* Test Notification Trigger */}
-        <TouchableOpacity
-          style={[styles.testBtn, NeuStyles.raisedSoft]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.testBtn,
+            NeuStyles.raisedSoft,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={handleTestNotification}
           accessibilityRole="button"
           accessibilityLabel="Gửi thông báo thử nghiệm"
-          activeOpacity={0.85}
         >
           <Ionicons name="notifications-outline" size={18} color="#2563EB" />
           <Text style={styles.testBtnText}>Gửi thông báo thử nghiệm</Text>
-        </TouchableOpacity>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );

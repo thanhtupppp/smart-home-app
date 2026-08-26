@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Switch,
   Modal,
@@ -108,48 +108,51 @@ export const AutomationScreen: React.FC = () => {
             Tự Động Hóa
           </Text>
         </View>
-        <TouchableOpacity
-          style={[styles.addBtn, NeuStyles.circleRaised]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.addBtn,
+            NeuStyles.circleRaised,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={handleOpenModal}
           accessibilityRole="button"
           accessibilityLabel="Thêm tự động hóa mới"
-          activeOpacity={0.85}
         >
           <Ionicons name="add" size={22} color="#2563EB" />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       {/* Segmented Neumorphic Tab Bar */}
       <View style={[styles.tabContainer, NeuStyles.cavity]}>
-        <TouchableOpacity
-          style={[
+        <Pressable
+          style={({ pressed }) => [
             styles.tabBtn,
             activeTab === 'scenes' ? [NeuStyles.pressed, styles.tabBtnActive] : styles.tabBtnInactive,
+            pressed && { opacity: 0.85 },
           ]}
           onPress={() => setActiveTab('scenes')}
           accessibilityRole="button"
           accessibilityLabel="Xem kịch bản thông minh"
-          activeOpacity={0.85}
         >
           <Text style={[styles.tabText, activeTab === 'scenes' && styles.tabTextActive]}>
             Kịch bản ({scenes.length})
           </Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[
+        <Pressable
+          style={({ pressed }) => [
             styles.tabBtn,
             activeTab === 'schedules' ? [NeuStyles.pressed, styles.tabBtnActive] : styles.tabBtnInactive,
+            pressed && { opacity: 0.85 },
           ]}
           onPress={() => setActiveTab('schedules')}
           accessibilityRole="button"
           accessibilityLabel="Xem lịch trình tự động"
-          activeOpacity={0.85}
         >
           <Text style={[styles.tabText, activeTab === 'schedules' && styles.tabTextActive]}>
             Lịch trình ({automations.length})
           </Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -208,15 +211,15 @@ export const AutomationScreen: React.FC = () => {
                       </Text>
                     </View>
 
-                    <TouchableOpacity
-                      style={[
+                    <Pressable
+                      style={({ pressed }) => [
                         styles.activateBtn,
                         scene.isActive ? [NeuStyles.pressed, styles.activateBtnActive] : NeuStyles.raisedSoft,
+                        pressed && { opacity: 0.85 },
                       ]}
                       onPress={() => handleActivateScene(scene.id)}
                       accessibilityRole="button"
                       accessibilityLabel={`Kích hoạt kịch bản ${scene.name}`}
-                      activeOpacity={0.85}
                     >
                       <Text
                         style={[
@@ -226,7 +229,7 @@ export const AutomationScreen: React.FC = () => {
                       >
                         {scene.isActive ? 'Đang chạy' : 'Kích hoạt'}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 </View>
               ))}
@@ -356,25 +359,31 @@ export const AutomationScreen: React.FC = () => {
             />
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.cancelBtn, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cancelBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleCloseModal}
                 accessibilityRole="button"
                 accessibilityLabel="Hủy tạo lịch trình"
-                activeOpacity={0.85}
               >
                 <Text style={styles.cancelBtnText}>Hủy</Text>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[styles.saveBtn, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.saveBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleAddSchedule}
                 accessibilityRole="button"
                 accessibilityLabel="Lưu lịch trình mới"
-                activeOpacity={0.85}
               >
                 <Text style={styles.saveBtnText}>Tạo lịch trình</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -512,10 +521,7 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#2563EB',
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 3,
+    boxShadow: '0 0 4px #2563EB',
   },
   activeLedText: {
     fontSize: 9,

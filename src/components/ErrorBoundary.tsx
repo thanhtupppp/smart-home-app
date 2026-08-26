@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography, BorderRadius, NeuStyles } from '../theme';
 
@@ -51,14 +51,17 @@ export class ErrorBoundary extends Component<Props, State> {
                 'Ứng dụng gặp lỗi khi tải thành phần này. Vui lòng thử tải lại.'}
             </Text>
 
-            <TouchableOpacity
-              style={[styles.retryBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.retryBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={this.handleReset}
-              activeOpacity={0.85}
             >
               <Ionicons name="refresh" size={16} color="#2563EB" />
               <Text style={styles.retryText}>Thử lại</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       );

@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   TextInput,
   Switch,
@@ -30,6 +30,23 @@ const SAVE_BTN_PADDING = 14;
 const FIREBASE_URL_REGEX =
   /^https:\/\/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.(firebaseio\.com|firebasedatabase\.app)\/?$/;
 
+const testFirebaseConnection = async (url: string): Promise<boolean> => {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    const response = await fetch(`${url}/.json?shallow=true`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    return response.ok || response.status === 401; // 401 means DB exists but requires secret
+  } catch {
+    return false;
+  }
+};
+
 export const FirebaseConfigScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const { firebaseConfig, updateFirebaseConfig } = useHome();
@@ -46,23 +63,6 @@ export const FirebaseConfigScreen: React.FC = () => {
     if (isDemo) return true;
     return FIREBASE_URL_REGEX.test(dbUrl.trim());
   }, [dbUrl, isDemo]);
-
-  const testFirebaseConnection = async (url: string): Promise<boolean> => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-      const response = await fetch(`${url}/.json?shallow=true`, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      return response.ok || response.status === 401; // 401 means DB exists but requires secret
-    } catch {
-      return false;
-    }
-  };
 
   const handleTestAndSave = useCallback(async () => {
     if (!isDemo && !isValidFirebaseUrl) {
@@ -227,13 +227,16 @@ export const FirebaseConfigScreen: React.FC = () => {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={[styles.saveBtn, NeuStyles.raisedSoft]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.saveBtn,
+            NeuStyles.raisedSoft,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={handleTestAndSave}
           disabled={isTesting}
           accessibilityRole="button"
           accessibilityLabel="Lưu và kiểm tra cấu hình Firebase"
-          activeOpacity={0.85}
         >
           {isTesting ? (
             <ActivityIndicator color="#FFFFFF" />
@@ -243,18 +246,21 @@ export const FirebaseConfigScreen: React.FC = () => {
               <Text style={styles.saveBtnText}>Lưu và Kích hoạt</Text>
             </>
           )}
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
-          style={[styles.loginBtn, NeuStyles.raised]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.loginBtn,
+            NeuStyles.raised,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={() => navigation.navigate('Login')}
           accessibilityRole="button"
           accessibilityLabel="Đăng nhập tài khoản Firebase"
-          activeOpacity={0.85}
         >
           <Ionicons name="person-circle-outline" size={18} color="#2563EB" />
           <Text style={styles.loginBtnText}>Đăng nhập tài khoản Firebase Cloud</Text>
-        </TouchableOpacity>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );

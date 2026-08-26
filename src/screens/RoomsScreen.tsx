@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Modal,
   TextInput,
@@ -63,7 +63,7 @@ export const RoomsScreen: React.FC = () => {
   const handleAddRoom = useCallback(() => {
     const trimmed = newRoomName.trim();
     if (!trimmed) {
-      Alert.alert('Thông báo', 'Vui lòng nhập tên phòng.');
+      Alert.alert('Lỗi', 'Vui lòng nhập tên phòng.');
       return;
     }
 
@@ -107,15 +107,18 @@ export const RoomsScreen: React.FC = () => {
         {/* Top Action Bar */}
         <View style={styles.topBar}>
           <Text style={styles.sectionHeading}>TỔNG QUAN KHU VỰC</Text>
-          <TouchableOpacity
-            style={[styles.addBtn, NeuStyles.circleRaised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.addBtn,
+              NeuStyles.circleRaised,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleOpenModal}
             accessibilityRole="button"
             accessibilityLabel="Thêm phòng mới"
-            activeOpacity={0.85}
           >
             <Ionicons name="add" size={20} color="#2563EB" />
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         {/* Statistics Summary Card */}
@@ -150,15 +153,18 @@ export const RoomsScreen: React.FC = () => {
             <Text style={styles.emptyDesc}>
               Bấm nút (+) ở góc trên bên phải để tạo khu vực đầu tiên cho ngôi nhà của bạn.
             </Text>
-            <TouchableOpacity
-              style={[styles.emptyCTA, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.emptyCTA,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={handleOpenModal}
               accessibilityRole="button"
               accessibilityLabel="Tạo phòng mới ngay"
-              activeOpacity={0.85}
             >
               <Text style={styles.emptyCTAText}>Tạo phòng ngay</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.grid}>
@@ -216,11 +222,12 @@ export const RoomsScreen: React.FC = () => {
               {ROOM_ICONS.map((item) => {
                 const isSelected = selectedIcon === item.id;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={item.id}
-                    style={[
+                    style={({ pressed }) => [
                       styles.iconChoice,
                       isSelected ? [NeuStyles.pressed, styles.iconChoiceActive] : NeuStyles.raisedSoft,
+                      pressed && { opacity: 0.85 },
                     ]}
                     onPress={() => setSelectedIcon(item.id)}
                     accessibilityRole="button"
@@ -231,31 +238,38 @@ export const RoomsScreen: React.FC = () => {
                       size={20}
                       color={isSelected ? '#2563EB' : '#64748B'}
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleCloseModal}
                 accessibilityRole="button"
                 accessibilityLabel="Hủy tạo phòng"
-                activeOpacity={0.85}
               >
                 <Text style={styles.cancelText}>Hủy</Text>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnPrimary, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  styles.modalBtnPrimary,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleAddRoom}
                 accessibilityRole="button"
                 accessibilityLabel="Xác nhận thêm phòng"
-                activeOpacity={0.85}
               >
                 <Text style={styles.submitText}>Thêm Phòng</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>

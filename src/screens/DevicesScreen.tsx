@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TextInput,
-  TouchableOpacity,
+  Pressable,
+  FlatList,
   StatusBar,
   Alert,
 } from 'react-native';
@@ -19,6 +19,104 @@ import { DeviceCard } from '../components/DeviceCard';
 import { RootStackParamList } from '../navigation/types';
 import { Device } from '../types';
 
+const CATEGORIES: { key: string; label: string; icon: any }[] = [
+  { key: 'all', label: 'Tất cả', icon: 'apps' },
+  { key: 'light', label: 'Đèn chiếu sáng', icon: 'lightbulb' },
+  { key: 'rgb_light', label: 'LED RGB', icon: 'palette' },
+  { key: 'ac', label: 'Điều hòa', icon: 'ac-unit' },
+  { key: 'switch', label: 'Công tắc / Ổ cắm', icon: 'power' },
+  { key: 'sensor', label: 'Cảm biến', icon: 'thermostat' },
+  { key: 'camera', label: 'Camera', icon: 'videocam' },
+];
+
+interface CategoryItemProps {
+  categoryKey: string;
+  label: string;
+  isSelected: boolean;
+  onSelect: (key: string) => void;
+}
+
+const CategoryItem = React.memo<CategoryItemProps>(({ categoryKey, label, isSelected, onSelect }) => {
+  const handlePress = useCallback(() => {
+    onSelect(categoryKey);
+  }, [categoryKey, onSelect]);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.chip,
+        isSelected ? [NeuStyles.pressed, styles.chipActive] : NeuStyles.raisedSoft,
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={handlePress}
+    >
+      <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+});
+
+interface RoomFilterItemProps {
+  roomId: string;
+  roomName: string;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+}
+
+const RoomFilterItem = React.memo<RoomFilterItemProps>(({ roomId, roomName, isSelected, onSelect }) => {
+  const handlePress = useCallback(() => {
+    onSelect(roomId);
+  }, [roomId, onSelect]);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.roomChip,
+        isSelected ? [NeuStyles.pressed, styles.roomChipActive] : NeuStyles.raisedSoft,
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={handlePress}
+    >
+      <Text style={[styles.roomChipText, isSelected && styles.roomChipTextActive]}>
+        {roomName}
+      </Text>
+    </Pressable>
+  );
+});
+
+interface DeviceRowItemProps {
+  device: Device;
+  onToggle: (id: string) => void;
+  onDetail: (dev: Device) => void;
+  onDelete: (dev: Device) => void;
+}
+
+const DeviceRowItem = React.memo<DeviceRowItemProps>(({ device, onToggle, onDetail, onDelete }) => {
+  const handleToggle = useCallback(() => {
+    onToggle(device.id);
+  }, [device.id, onToggle]);
+
+  const handleDetail = useCallback(() => {
+    onDetail(device);
+  }, [device, onDetail]);
+
+  const handleDelete = useCallback(() => {
+    onDelete(device);
+  }, [device, onDelete]);
+
+  const hasDetail = device.type === 'ac' || device.type === 'rgb_light' || device.type === 'camera';
+
+  return (
+    <DeviceCard
+      device={device}
+      onToggle={handleToggle}
+      onPressDetail={hasDetail ? handleDetail : undefined}
+      onDelete={handleDelete}
+    />
+  );
+});
+
 export const DevicesScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { devices, rooms, toggleDevice, turnAllDevices, removeDevice } = useHome();
@@ -27,30 +125,22 @@ export const DevicesScreen: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRoom, setSelectedRoom] = useState<string>('all');
 
-  const categories: { key: string; label: string; icon: any }[] = [
-    { key: 'all', label: 'Tất cả', icon: 'apps' },
-    { key: 'light', label: 'Đèn chiếu sáng', icon: 'lightbulb' },
-    { key: 'rgb_light', label: 'LED RGB', icon: 'palette' },
-    { key: 'ac', label: 'Điều hòa', icon: 'ac-unit' },
-    { key: 'switch', label: 'Công tắc / Ổ cắm', icon: 'power' },
-    { key: 'sensor', label: 'Cảm biến', icon: 'thermostat' },
-    { key: 'camera', label: 'Camera', icon: 'videocam' },
-  ];
+  const filteredDevices = useMemo(() => {
+    return devices.filter((dev) => {
+      const matchesSearch =
+        dev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (dev.roomName && dev.roomName.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesCategory =
+        selectedCategory === 'all' ||
+        dev.type === selectedCategory ||
+        (selectedCategory === 'light' && (dev.type === 'light' || dev.type === 'rgb_light'));
+      const matchesRoom = selectedRoom === 'all' || dev.roomId === selectedRoom;
 
-  const filteredDevices = devices.filter((dev) => {
-    const matchesSearch =
-      dev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (dev.roomName && dev.roomName.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesCategory =
-      selectedCategory === 'all' ||
-      dev.type === selectedCategory ||
-      (selectedCategory === 'light' && (dev.type === 'light' || dev.type === 'rgb_light'));
-    const matchesRoom = selectedRoom === 'all' || dev.roomId === selectedRoom;
+      return matchesSearch && matchesCategory && matchesRoom;
+    });
+  }, [devices, searchQuery, selectedCategory, selectedRoom]);
 
-    return matchesSearch && matchesCategory && matchesRoom;
-  });
-
-  const handleDeviceDetail = (dev: Device) => {
+  const handleDeviceDetail = useCallback((dev: Device) => {
     if (dev.type === 'rgb_light') {
       navigation.navigate('RGBController', { deviceId: dev.id });
     } else if (dev.type === 'ac') {
@@ -58,7 +148,7 @@ export const DevicesScreen: React.FC = () => {
     } else if (dev.type === 'camera') {
       navigation.navigate('CameraDetail');
     }
-  };
+  }, [navigation]);
 
   const handleDeleteDevice = useCallback((dev: Device) => {
     Alert.alert(
@@ -77,9 +167,49 @@ export const DevicesScreen: React.FC = () => {
     );
   }, [removeDevice]);
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#E8ECF2" />
+  const roomFilterData = useMemo(() => [
+    { id: 'all', name: 'Tất cả phòng' },
+    ...rooms,
+  ], [rooms]);
+
+  const renderCategoryItem = useCallback(
+    ({ item: cat }: { item: typeof CATEGORIES[number] }) => (
+      <CategoryItem
+        categoryKey={cat.key}
+        label={cat.label}
+        isSelected={selectedCategory === cat.key}
+        onSelect={setSelectedCategory}
+      />
+    ),
+    [selectedCategory]
+  );
+
+  const renderRoomItem = useCallback(
+    ({ item: room }: { item: { id: string; name: string } }) => (
+      <RoomFilterItem
+        roomId={room.id}
+        roomName={room.name}
+        isSelected={selectedRoom === room.id}
+        onSelect={setSelectedRoom}
+      />
+    ),
+    [selectedRoom]
+  );
+
+  const renderDeviceItem = useCallback(
+    ({ item: dev }: { item: Device }) => (
+      <DeviceRowItem
+        device={dev}
+        onToggle={toggleDevice}
+        onDetail={handleDeviceDetail}
+        onDelete={handleDeleteDevice}
+      />
+    ),
+    [toggleDevice, handleDeviceDetail, handleDeleteDevice]
+  );
+
+  const renderHeader = () => (
+    <View>
       <View style={styles.header}>
         <View>
           <Text style={[Typography.headlineMedium, styles.title]}>Thiết bị</Text>
@@ -88,18 +218,20 @@ export const DevicesScreen: React.FC = () => {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={[styles.addButton, NeuStyles.circleRaised]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.addButton,
+            NeuStyles.circleRaised,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={() => navigation.navigate('AddDevice')}
-          activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Thêm thiết bị mới"
         >
           <Ionicons name="add" size={22} color="#2563EB" />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
-      {/* Search Input (Cavity Inset Groove) */}
       <View style={[styles.searchContainer, NeuStyles.cavity]}>
         <Ionicons name="search" size={18} color="#64748B" style={styles.searchIcon} />
         <TextInput
@@ -110,166 +242,113 @@ export const DevicesScreen: React.FC = () => {
           onChangeText={setSearchQuery}
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
+          <Pressable onPress={() => setSearchQuery('')}>
             <Ionicons name="close-circle" size={18} color="#64748B" />
-          </TouchableOpacity>
+          </Pressable>
         )}
       </View>
 
-      {/* Category Filter Chips */}
-      <ScrollView
+      <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.categoryScroll}
         contentContainerStyle={styles.categoryContainer}
-      >
-        {categories.map((cat) => {
-          const isSelected = selectedCategory === cat.key;
-          return (
-            <TouchableOpacity
-              key={cat.key}
-              style={[
-                styles.chip,
-                isSelected ? [NeuStyles.pressed, styles.chipActive] : NeuStyles.raisedSoft,
-              ]}
-              onPress={() => setSelectedCategory(cat.key)}
-              activeOpacity={0.85}
-            >
-              <Text
-                style={[
-                  styles.chipText,
-                  isSelected && styles.chipTextActive,
-                ]}
-              >
-                {cat.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        data={CATEGORIES}
+        keyExtractor={(cat) => cat.key}
+        renderItem={renderCategoryItem}
+      />
 
-      {/* Room Filter Chips */}
-      <ScrollView
+      <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.roomScroll}
         contentContainerStyle={styles.roomContainer}
-      >
-        <TouchableOpacity
-          style={[
-            styles.roomChip,
-            selectedRoom === 'all' ? [NeuStyles.pressed, styles.roomChipActive] : NeuStyles.raisedSoft,
-          ]}
-          onPress={() => setSelectedRoom('all')}
-          activeOpacity={0.85}
-        >
-          <Text
-            style={[
-              styles.roomChipText,
-              selectedRoom === 'all' && styles.roomChipTextActive,
-            ]}
-          >
-            Tất cả phòng
-          </Text>
-        </TouchableOpacity>
-        {rooms.map((room) => {
-          const isSelected = selectedRoom === room.id;
-          return (
-            <TouchableOpacity
-              key={room.id}
-              style={[
-                styles.roomChip,
-                isSelected ? [NeuStyles.pressed, styles.roomChipActive] : NeuStyles.raisedSoft,
-              ]}
-              onPress={() => setSelectedRoom(room.id)}
-              activeOpacity={0.85}
-            >
-              <Text
-                style={[
-                  styles.roomChipText,
-                  isSelected && styles.roomChipTextActive,
-                ]}
-              >
-                {room.name}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        data={roomFilterData}
+        keyExtractor={(room) => room.id}
+        renderItem={renderRoomItem}
+      />
 
-      {/* Quick Master Controls */}
       {devices.length > 0 && (
         <View style={styles.masterControlBar}>
           <Text style={styles.deviceCountText}>
             Danh sách ({filteredDevices.length})
           </Text>
           <View style={styles.masterButtons}>
-            <TouchableOpacity
-              style={[styles.masterBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.masterBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => turnAllDevices(true, selectedRoom === 'all' ? undefined : selectedRoom)}
-              activeOpacity={0.85}
             >
               <View style={styles.greenLed} />
               <Text style={styles.masterBtnTextOn}>Bật tất cả</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.masterBtn, NeuStyles.raisedSoft]}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.masterBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => turnAllDevices(false, selectedRoom === 'all' ? undefined : selectedRoom)}
-              activeOpacity={0.85}
             >
               <View style={styles.redLed} />
               <Text style={styles.masterBtnTextOff}>Tắt tất cả</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       )}
+    </View>
+  );
 
-      {/* Devices List */}
-      <ScrollView
+  const renderEmpty = () => {
+    if (devices.length === 0) {
+      return (
+        <View style={[styles.emptyState, NeuStyles.raised]}>
+          <Ionicons name="hardware-chip-outline" size={54} color="#94A3B8" />
+          <Text style={styles.emptyStateTitle}>Chưa có thiết bị nào</Text>
+          <Text style={styles.emptyStateDesc}>
+            Toàn bộ dữ liệu mẫu đã được dọn dẹp. Hãy bấm nút dưới đây để bắt đầu ghép nối và thêm thiết bị ESP32 thực tế của bạn.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.addDeviceCTA,
+              NeuStyles.raised,
+              pressed && { opacity: 0.85 },
+            ]}
+            onPress={() => navigation.navigate('AddDevice')}
+          >
+            <Ionicons name="add-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.addDeviceCTAText}>Thêm thiết bị ESP32 ngay</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.emptyState, NeuStyles.raised]}>
+        <MaterialIcons name="devices-other" size={44} color="#94A3B8" />
+        <Text style={styles.emptyStateTitle}>Không tìm thấy thiết bị</Text>
+        <Text style={styles.emptyStateDesc}>
+          Hãy thử tìm kiếm với từ khóa khác hoặc chuyển bộ lọc danh mục.
+        </Text>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#E8ECF2" />
+      <FlatList
         style={styles.deviceList}
         contentContainerStyle={styles.deviceListContent}
         showsVerticalScrollIndicator={false}
-      >
-        {devices.length === 0 ? (
-          <View style={[styles.emptyState, NeuStyles.raised]}>
-            <Ionicons name="hardware-chip-outline" size={54} color="#94A3B8" />
-            <Text style={styles.emptyStateTitle}>Chưa có thiết bị nào</Text>
-            <Text style={styles.emptyStateDesc}>
-              Toàn bộ dữ liệu mẫu đã được dọn dẹp. Hãy bấm nút dưới đây để bắt đầu ghép nối và thêm thiết bị ESP32 thực tế của bạn.
-            </Text>
-            <TouchableOpacity
-              style={[styles.addDeviceCTA, NeuStyles.raised]}
-              onPress={() => navigation.navigate('AddDevice')}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="add-circle" size={20} color="#FFFFFF" />
-              <Text style={styles.addDeviceCTAText}>Thêm thiết bị ESP32 ngay</Text>
-            </TouchableOpacity>
-          </View>
-        ) : filteredDevices.length === 0 ? (
-          <View style={[styles.emptyState, NeuStyles.raised]}>
-            <MaterialIcons name="devices-other" size={44} color="#94A3B8" />
-            <Text style={styles.emptyStateTitle}>Không tìm thấy thiết bị</Text>
-            <Text style={styles.emptyStateDesc}>
-              Hãy thử tìm kiếm với từ khóa khác hoặc chuyển bộ lọc danh mục.
-            </Text>
-          </View>
-        ) : (
-          filteredDevices.map((dev) => (
-            <DeviceCard
-              key={dev.id}
-              device={dev}
-              onToggle={() => toggleDevice(dev.id)}
-              onPressDetail={
-                ['rgb_light', 'ac', 'camera'].includes(dev.type)
-                  ? () => handleDeviceDetail(dev)
-                  : undefined
-              }
-              onDelete={() => handleDeleteDevice(dev)}
-            />
-          ))
-        )}
-      </ScrollView>
+        data={filteredDevices}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmpty}
+        renderItem={renderDeviceItem}
+      />
     </SafeAreaView>
   );
 };

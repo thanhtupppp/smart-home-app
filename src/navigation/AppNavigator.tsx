@@ -44,20 +44,8 @@ const TabNavigator = () => {
           height: Platform.OS === 'ios' ? 88 : 68,
           paddingBottom: Platform.OS === 'ios' ? 28 : 10,
           paddingTop: 8,
-          ...Platform.select({
-            ios: {
-              shadowColor: '#9EADBF',
-              shadowOffset: { width: 0, height: -4 },
-              shadowOpacity: 0.35,
-              shadowRadius: 10,
-            },
-            android: {
-              elevation: 10,
-            },
-            default: {
-              boxShadow: '0 -4px 14px rgba(158, 173, 191, 0.35)',
-            },
-          }),
+          boxShadow: '0 -4px 14px rgba(158, 173, 191, 0.35)',
+          elevation: 10,
         },
         tabBarLabelStyle: {
           fontSize: 11,

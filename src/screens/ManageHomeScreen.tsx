@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useReducer, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
   Modal,
@@ -61,6 +61,70 @@ const HOME_ICONS: Array<{ name: keyof typeof Ionicons.glyphMap; label: string }>
   { name: 'leaf', label: 'Nghỉ dưỡng' },
 ];
 
+interface ModalState {
+  isAddVisible: boolean;
+  newHomeName: string;
+  newHomeAddress: string;
+  newHomeIcon: keyof typeof Ionicons.glyphMap;
+  isCreating: boolean;
+  isEditVisible: boolean;
+  editedName: string;
+  isSaving: boolean;
+}
+
+type ModalAction =
+  | { type: 'OPEN_ADD' }
+  | { type: 'CLOSE_ADD' }
+  | { type: 'SET_NEW_NAME'; payload: string }
+  | { type: 'SET_NEW_ADDRESS'; payload: string }
+  | { type: 'SET_NEW_ICON'; payload: keyof typeof Ionicons.glyphMap }
+  | { type: 'SET_CREATING'; payload: boolean }
+  | { type: 'RESET_ADD' }
+  | { type: 'OPEN_EDIT'; payload: string }
+  | { type: 'CLOSE_EDIT' }
+  | { type: 'SET_EDIT_NAME'; payload: string }
+  | { type: 'SET_SAVING'; payload: boolean };
+
+const initialModalState: ModalState = {
+  isAddVisible: false,
+  newHomeName: '',
+  newHomeAddress: '',
+  newHomeIcon: 'home',
+  isCreating: false,
+  isEditVisible: false,
+  editedName: '',
+  isSaving: false,
+};
+
+const modalReducer = (state: ModalState, action: ModalAction): ModalState => {
+  switch (action.type) {
+    case 'OPEN_ADD':
+      return { ...state, isAddVisible: true };
+    case 'CLOSE_ADD':
+      return { ...state, isAddVisible: false };
+    case 'SET_NEW_NAME':
+      return { ...state, newHomeName: action.payload };
+    case 'SET_NEW_ADDRESS':
+      return { ...state, newHomeAddress: action.payload };
+    case 'SET_NEW_ICON':
+      return { ...state, newHomeIcon: action.payload };
+    case 'SET_CREATING':
+      return { ...state, isCreating: action.payload };
+    case 'RESET_ADD':
+      return { ...state, isAddVisible: false, newHomeName: '', newHomeAddress: '', newHomeIcon: 'home', isCreating: false };
+    case 'OPEN_EDIT':
+      return { ...state, isEditVisible: true, editedName: action.payload };
+    case 'CLOSE_EDIT':
+      return { ...state, isEditVisible: false };
+    case 'SET_EDIT_NAME':
+      return { ...state, editedName: action.payload };
+    case 'SET_SAVING':
+      return { ...state, isSaving: action.payload };
+    default:
+      return state;
+  }
+};
+
 export const ManageHomeScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const { overview, rooms, devices, updateHomeName } = useHome();
@@ -72,18 +136,20 @@ export const ManageHomeScreen: React.FC = () => {
   const [homes, setHomes] = useState<HomeItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Add Home Modal
-  const [isAddModalVisible, setIsAddModalVisible] = useState<boolean>(false);
-  const [newHomeName, setNewHomeName] = useState<string>('');
-  const [newHomeAddress, setNewHomeAddress] = useState<string>('');
-  const [newHomeIcon, setNewHomeIcon] = useState<keyof typeof Ionicons.glyphMap>('home');
-  const [isCreatingHome, setIsCreatingHome] = useState<boolean>(false);
+  // Modals state via Reducer
+  const [modalState, dispatchModal] = useReducer(modalReducer, initialModalState);
+  const selectedHomeForEditRef = useRef<HomeItem | null>(null);
 
-  // Edit Home Name Modal
-  const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
-  const [selectedHomeForEdit, setSelectedHomeForEdit] = useState<HomeItem | null>(null);
-  const [editedHomeName, setEditedHomeName] = useState<string>('');
-  const [isSavingName, setIsSavingName] = useState<boolean>(false);
+  const {
+    isAddVisible,
+    newHomeName,
+    newHomeAddress,
+    newHomeIcon,
+    isCreating,
+    isEditVisible,
+    editedName,
+    isSaving,
+  } = modalState;
 
   // Load Homes & Members
   const loadHomesAndMembers = useCallback(async () => {
@@ -128,9 +194,9 @@ export const ManageHomeScreen: React.FC = () => {
         if (Array.isArray(list)) {
           setMembersList(
             list.map((m: any) => ({
-              id: m.id,
-              name: m.name,
-              avatarInitials: m.avatarInitials || m.name?.slice(0, 2)?.toUpperCase() || 'TV',
+              id: m.id || m.email,
+              name: m.name || 'Thành viên',
+              avatarInitials: m.avatarInitials || 'TV',
             }))
           );
         }
@@ -139,33 +205,16 @@ export const ManageHomeScreen: React.FC = () => {
       // Ignore
     }
 
-    // 3. Sync with Firebase RTDB
+    // 3. Sync from Firebase Remote
     try {
       const remoteHomes = await firebaseService.fetchHomes();
       if (remoteHomes && Object.keys(remoteHomes).length > 0) {
         const list: HomeItem[] = Object.values(remoteHomes);
         setHomes(list);
         await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(list));
-      } else {
-        await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(localHomes));
-        await firebaseService.saveHome(defaultHome);
-      }
-
-      const remoteMembers = await firebaseService.fetchMembers();
-      if (remoteMembers) {
-        const list = Object.values(remoteMembers) as any[];
-        if (list.length > 0) {
-          setMembersList(
-            list.map((m: any) => ({
-              id: m.id,
-              name: m.name,
-              avatarInitials: m.avatarInitials || m.name?.slice(0, 2)?.toUpperCase() || 'TV',
-            }))
-          );
-        }
       }
     } catch {
-      // Offline fallback
+      // Fallback
     } finally {
       setIsLoading(false);
     }
@@ -175,11 +224,9 @@ export const ManageHomeScreen: React.FC = () => {
     loadHomesAndMembers();
   }, [loadHomesAndMembers]);
 
-  // Switch Active Home
+  // Switch Home
   const handleSwitchHome = useCallback(
     async (targetHome: HomeItem) => {
-      if (targetHome.isCurrent) return;
-
       const updated = homes.map((h) => ({
         ...h,
         isCurrent: h.id === targetHome.id,
@@ -189,10 +236,10 @@ export const ManageHomeScreen: React.FC = () => {
       await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(updated));
       await updateHomeName(targetHome.name);
 
-      // Sync updated active flags to Firebase
-      updated.forEach((h) => firebaseService.saveHome(h));
-
-      Alert.alert('Đã chuyển ngôi nhà', `Bạn đang điều khiển ngôi nhà "${targetHome.name}".`);
+      Alert.alert(
+        'Đã đổi không gian nhà',
+        `Bạn hiện đang điều khiển ngôi nhà "${targetHome.name}".`
+      );
     },
     [homes, updateHomeName]
   );
@@ -204,7 +251,7 @@ export const ManageHomeScreen: React.FC = () => {
       return;
     }
 
-    setIsCreatingHome(true);
+    dispatchModal({ type: 'SET_CREATING', payload: true });
     try {
       const createdHome: HomeItem = {
         id: `home_${Date.now()}`,
@@ -222,35 +269,33 @@ export const ManageHomeScreen: React.FC = () => {
       await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(updated));
       await firebaseService.saveHome(createdHome);
 
-      setIsAddModalVisible(false);
-      setNewHomeName('');
-      setNewHomeAddress('');
-      setNewHomeIcon('home');
+      dispatchModal({ type: 'RESET_ADD' });
       Alert.alert('Thành công', `Đã thêm ngôi nhà "${createdHome.name}" vào danh sách.`);
     } catch {
       Alert.alert('Lỗi', 'Không thể kết nối lưu ngôi nhà mới vào Firebase.');
     } finally {
-      setIsCreatingHome(false);
+      dispatchModal({ type: 'SET_CREATING', payload: false });
     }
   }, [newHomeName, newHomeAddress, newHomeIcon, homes]);
 
   // Save Edited Home Name
   const handleSaveEditedHomeName = useCallback(async () => {
-    if (!selectedHomeForEdit || !editedHomeName.trim()) {
+    const selected = selectedHomeForEditRef.current;
+    if (!selected || !editedName.trim()) {
       Alert.alert('Lỗi', 'Tên ngôi nhà không được để trống.');
       return;
     }
 
-    setIsSavingName(true);
+    dispatchModal({ type: 'SET_SAVING', payload: true });
     try {
       const updated = homes.map((h) =>
-        h.id === selectedHomeForEdit.id ? { ...h, name: editedHomeName.trim() } : h
+        h.id === selected.id ? { ...h, name: editedName.trim() } : h
       );
 
       setHomes(updated);
       await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(updated));
 
-      const editedObj = updated.find((h) => h.id === selectedHomeForEdit.id);
+      const editedObj = updated.find((h) => h.id === selected.id);
       if (editedObj) {
         await firebaseService.saveHome(editedObj);
         if (editedObj.isCurrent) {
@@ -258,15 +303,15 @@ export const ManageHomeScreen: React.FC = () => {
         }
       }
 
-      setIsEditModalVisible(false);
-      setSelectedHomeForEdit(null);
+      dispatchModal({ type: 'CLOSE_EDIT' });
+      selectedHomeForEditRef.current = null;
       Alert.alert('Thành công', 'Đã cập nhật tên ngôi nhà.');
     } catch {
       Alert.alert('Lỗi', 'Không thể kết nối đến Firebase Cloud.');
     } finally {
-      setIsSavingName(false);
+      dispatchModal({ type: 'SET_SAVING', payload: false });
     }
-  }, [selectedHomeForEdit, editedHomeName, homes, updateHomeName]);
+  }, [editedName, homes, updateHomeName]);
 
   // Delete Home
   const handleDeleteHome = useCallback(
@@ -333,21 +378,21 @@ export const ManageHomeScreen: React.FC = () => {
         {TABS.map((tab) => {
           const isSelected = activeTab === tab.id;
           return (
-            <TouchableOpacity
+            <Pressable
               key={tab.id}
-              style={[
+              style={({ pressed }) => [
                 styles.tabBtn,
                 isSelected ? [NeuStyles.pressed, styles.tabBtnActive] : styles.tabBtnInactive,
+                pressed && { opacity: 0.85 },
               ]}
               onPress={() => setActiveTab(tab.id)}
               accessibilityRole="button"
               accessibilityLabel={`Chuyển sang tab ${tab.label}`}
-              activeOpacity={0.85}
             >
               <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>
                 {tab.label}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
@@ -369,10 +414,12 @@ export const ManageHomeScreen: React.FC = () => {
 
               return (
                 <View key={h.id} style={[styles.homeCard, NeuStyles.raised]}>
-                  <TouchableOpacity
-                    style={styles.homeHeaderTouch}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.homeHeaderTouch,
+                      pressed && { opacity: 0.75 },
+                    ]}
                     onPress={() => handleSwitchHome(h)}
-                    activeOpacity={0.75}
                   >
                     <View style={[styles.iconBox, NeuStyles.raisedSoft]}>
                       <Ionicons
@@ -394,18 +441,21 @@ export const ManageHomeScreen: React.FC = () => {
                         >
                           {h.name}
                         </Text>
-                        <TouchableOpacity
-                          style={[styles.editNameBtn, NeuStyles.circleRaised]}
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.editNameBtn,
+                            NeuStyles.circleRaised,
+                            pressed && { opacity: 0.85 },
+                          ]}
                           onPress={() => {
-                            setSelectedHomeForEdit(h);
-                            setEditedHomeName(h.name);
-                            setIsEditModalVisible(true);
+                            selectedHomeForEditRef.current = h;
+                            dispatchModal({ type: 'OPEN_EDIT', payload: h.name });
                           }}
                           accessibilityRole="button"
                           accessibilityLabel="Đổi tên ngôi nhà"
                         >
                           <Ionicons name="pencil" size={11} color="#2563EB" />
-                        </TouchableOpacity>
+                        </Pressable>
                       </View>
                       <Text style={styles.homeAddress}>{h.address || 'Việt Nam'}</Text>
                     </View>
@@ -416,16 +466,20 @@ export const ManageHomeScreen: React.FC = () => {
                         <Text style={styles.currentText}>Đang chọn</Text>
                       </View>
                     ) : (
-                      <TouchableOpacity
-                        style={[styles.deleteHomeBtn, NeuStyles.raisedSoft]}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.deleteHomeBtn,
+                          NeuStyles.raisedSoft,
+                          pressed && { opacity: 0.85 },
+                        ]}
                         onPress={() => handleDeleteHome(h)}
                         accessibilityRole="button"
                         accessibilityLabel="Xóa ngôi nhà"
                       >
                         <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                      </TouchableOpacity>
+                      </Pressable>
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
 
                   {/* Stats & Members for Selected Home */}
                   {isSelectedHome && (
@@ -451,19 +505,23 @@ export const ManageHomeScreen: React.FC = () => {
                           GIA ĐÌNH ({Math.max(1, membersList.length)})
                         </Text>
                         <View style={styles.avatarRow}>
-                          {membersList.slice(0, 4).map((m, index) => (
-                            <View key={m.id || index} style={[styles.avatarDot, NeuStyles.cavity]}>
+                          {membersList.slice(0, 4).map((m) => (
+                            <View key={m.id || m.name} style={[styles.avatarDot, NeuStyles.cavity]}>
                               <Text style={styles.avatarText}>{m.avatarInitials}</Text>
                             </View>
                           ))}
-                          <TouchableOpacity
-                            style={[styles.addMemberSmallBtn, NeuStyles.circleRaised]}
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.addMemberSmallBtn,
+                              NeuStyles.circleRaised,
+                              pressed && { opacity: 0.85 },
+                            ]}
                             onPress={() => navigation.navigate('MemberRoles')}
                             accessibilityRole="button"
                             accessibilityLabel="Quản lý thành viên"
                           >
                             <Ionicons name="add" size={14} color="#2563EB" />
-                          </TouchableOpacity>
+                          </Pressable>
                         </View>
                       </View>
                     </>
@@ -472,16 +530,19 @@ export const ManageHomeScreen: React.FC = () => {
               );
             })}
 
-            <TouchableOpacity
-              style={[styles.addHomeBtn, NeuStyles.raisedSoft]}
-              onPress={() => setIsAddModalVisible(true)}
+            <Pressable
+              style={({ pressed }) => [
+                styles.addHomeBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={() => dispatchModal({ type: 'OPEN_ADD' })}
               accessibilityRole="button"
               accessibilityLabel="Thêm ngôi nhà mới"
-              activeOpacity={0.85}
             >
               <Ionicons name="add-circle" size={20} color="#2563EB" />
               <Text style={styles.addHomeText}>Thêm ngôi nhà mới</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.qrSection}>
@@ -502,16 +563,19 @@ export const ManageHomeScreen: React.FC = () => {
                 <Text style={styles.qrCodeString}>MÃ NHÀ: TU-HOME-ESP32</Text>
               </View>
 
-              <TouchableOpacity
-                style={[styles.shareBtn, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.shareBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleShareQR}
                 accessibilityRole="button"
                 accessibilityLabel="Chia sẻ mã QR nhà"
-                activeOpacity={0.85}
               >
                 <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.shareBtnText}>Chia sẻ mã mời</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         )}
@@ -519,10 +583,10 @@ export const ManageHomeScreen: React.FC = () => {
 
       {/* Add Home Modal */}
       <Modal
-        visible={isAddModalVisible}
+        visible={isAddVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setIsAddModalVisible(false)}
+        onRequestClose={() => dispatchModal({ type: 'CLOSE_ADD' })}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, NeuStyles.raised]}>
@@ -531,12 +595,12 @@ export const ManageHomeScreen: React.FC = () => {
                 <Ionicons name="home-outline" size={20} color="#2563EB" />
                 <Text style={styles.modalTitle}>Thêm ngôi nhà mới</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => setIsAddModalVisible(false)}
+              <Pressable
+                onPress={() => dispatchModal({ type: 'CLOSE_ADD' })}
                 style={styles.modalCloseBtn}
               >
                 <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             <Text style={styles.modalSub}>
@@ -548,7 +612,7 @@ export const ManageHomeScreen: React.FC = () => {
               <TextInput
                 style={styles.modalInput}
                 value={newHomeName}
-                onChangeText={setNewHomeName}
+                onChangeText={(text) => dispatchModal({ type: 'SET_NEW_NAME', payload: text })}
                 placeholder="Ví dụ: Căn hộ 204, Biệt thự Đà Lạt..."
                 placeholderTextColor="#94A3B8"
               />
@@ -559,7 +623,7 @@ export const ManageHomeScreen: React.FC = () => {
               <TextInput
                 style={styles.modalInput}
                 value={newHomeAddress}
-                onChangeText={setNewHomeAddress}
+                onChangeText={(text) => dispatchModal({ type: 'SET_NEW_ADDRESS', payload: text })}
                 placeholder="Ví dụ: Hoàng Mai, Hà Nội"
                 placeholderTextColor="#94A3B8"
               />
@@ -570,13 +634,14 @@ export const ManageHomeScreen: React.FC = () => {
               {HOME_ICONS.map((item) => {
                 const isSelected = newHomeIcon === item.name;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={item.name}
-                    style={[
+                    style={({ pressed }) => [
                       styles.iconOptionBtn,
                       isSelected ? styles.iconOptionSelected : NeuStyles.raisedSoft,
+                      pressed && { opacity: 0.85 },
                     ]}
-                    onPress={() => setNewHomeIcon(item.name)}
+                    onPress={() => dispatchModal({ type: 'SET_NEW_ICON', payload: item.name })}
                   >
                     <Ionicons
                       name={item.name}
@@ -591,30 +656,38 @@ export const ManageHomeScreen: React.FC = () => {
                     >
                       {item.label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
 
             <View style={styles.modalActionRow}>
-              <TouchableOpacity
-                style={[styles.modalCancelBtn, NeuStyles.raisedSoft]}
-                onPress={() => setIsAddModalVisible(false)}
-                disabled={isCreatingHome}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => dispatchModal({ type: 'CLOSE_ADD' })}
+                disabled={isCreating}
               >
                 <Text style={styles.modalCancelText}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSaveBtn, NeuStyles.raised]}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalSaveBtn,
+                  NeuStyles.raised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleCreateHomeSubmit}
-                disabled={isCreatingHome}
+                disabled={isCreating}
               >
-                {isCreatingHome ? (
+                {isCreating ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.modalSaveText}>Tạo ngôi nhà</Text>
                 )}
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -622,10 +695,10 @@ export const ManageHomeScreen: React.FC = () => {
 
       {/* Edit Home Name Modal */}
       <Modal
-        visible={isEditModalVisible}
+        visible={isEditVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsEditModalVisible(false)}
+        onRequestClose={() => dispatchModal({ type: 'CLOSE_EDIT' })}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, NeuStyles.raised]}>
@@ -637,32 +710,40 @@ export const ManageHomeScreen: React.FC = () => {
             <View style={[styles.modalInputWrap, NeuStyles.cavity]}>
               <TextInput
                 style={styles.modalInput}
-                value={editedHomeName}
-                onChangeText={setEditedHomeName}
+                value={editedName}
+                onChangeText={(text) => dispatchModal({ type: 'SET_EDIT_NAME', payload: text })}
                 placeholder="Ví dụ: Tú SmartHome"
                 placeholderTextColor="#94A3B8"
               />
             </View>
 
             <View style={styles.modalActionRow}>
-              <TouchableOpacity
-                style={[styles.modalCancelBtn, NeuStyles.raisedSoft]}
-                onPress={() => setIsEditModalVisible(false)}
-                disabled={isSavingName}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => dispatchModal({ type: 'CLOSE_EDIT' })}
+                disabled={isSaving}
               >
                 <Text style={styles.modalCancelText}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSaveBtn, NeuStyles.raised]}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalSaveBtn,
+                  NeuStyles.raised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleSaveEditedHomeName}
-                disabled={isSavingName}
+                disabled={isSaving}
               >
-                {isSavingName ? (
+                {isSaving ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.modalSaveText}>Lưu thay đổi</Text>
                 )}
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>

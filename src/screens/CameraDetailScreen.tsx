@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
 } from 'react-native';
@@ -62,12 +62,18 @@ const getEventColor = (type: EventType): string => {
   }
 };
 
+const formatRecordingTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
 export const CameraDetailScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const [isNightVision, setIsNightVision] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [isPTZMoving, setIsPTZMoving] = useState(false);
+  const isPTZMovingRef = useRef(false);
 
   // Recording timer
   useEffect(() => {
@@ -83,12 +89,6 @@ export const CameraDetailScreen: React.FC = () => {
       if (interval) clearInterval(interval);
     };
   }, [isRecording]);
-
-  const formatRecordingTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
 
   const PTZ_DIRECTIONS = useMemo(
     () => ({
@@ -145,9 +145,11 @@ export const CameraDetailScreen: React.FC = () => {
 
   const handlePTZMove = useCallback(
     (direction: keyof typeof PTZ_DIRECTIONS) => {
-      setIsPTZMoving(true);
+      isPTZMovingRef.current = true;
       Alert.alert('Điều khiển PTZ', PTZ_DIRECTIONS[direction].label);
-      setTimeout(() => setIsPTZMoving(false), 400);
+      setTimeout(() => {
+        isPTZMovingRef.current = false;
+      }, 400);
     },
     [PTZ_DIRECTIONS]
   );
@@ -214,28 +216,31 @@ export const CameraDetailScreen: React.FC = () => {
 
         {/* Quick Actions Control Toolbar */}
         <View style={[styles.toolbarCard, NeuStyles.raised]}>
-          <TouchableOpacity
-            style={[styles.toolBtn, NeuStyles.raisedSoft]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.toolBtn,
+              NeuStyles.raisedSoft,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleSnapshot}
             accessibilityRole="button"
             accessibilityLabel="Chụp ảnh khung hình"
-            activeOpacity={0.85}
           >
             <View style={[styles.toolIconWrap, NeuStyles.cavity]}>
               <Ionicons name="camera" size={20} color="#2563EB" />
             </View>
             <Text style={styles.toolLabel}>Chụp ảnh</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.toolBtn,
               isRecording ? [NeuStyles.pressed, styles.toolBtnRecording] : NeuStyles.raisedSoft,
+              pressed && { opacity: 0.85 },
             ]}
             onPress={handleToggleRecording}
             accessibilityRole="button"
             accessibilityLabel={isRecording ? 'Dừng ghi hình' : 'Bắt đầu ghi hình'}
-            activeOpacity={0.85}
           >
             <View style={[styles.toolIconWrap, NeuStyles.cavity]}>
               <Ionicons
@@ -247,30 +252,33 @@ export const CameraDetailScreen: React.FC = () => {
             <Text style={[styles.toolLabel, isRecording && styles.toolLabelRecording]}>
               {isRecording ? 'Dừng REC' : 'Ghi hình'}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={[styles.toolBtn, NeuStyles.raisedSoft]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.toolBtn,
+              NeuStyles.raisedSoft,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleTwoWayTalk}
             accessibilityRole="button"
             accessibilityLabel="Đàm thoại 2 chiều"
-            activeOpacity={0.85}
           >
             <View style={[styles.toolIconWrap, NeuStyles.cavity]}>
               <Ionicons name="mic" size={20} color="#2563EB" />
             </View>
             <Text style={styles.toolLabel}>Đàm thoại</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               styles.toolBtn,
               isNightVision ? [NeuStyles.pressed, styles.toolBtnActive] : NeuStyles.raisedSoft,
+              pressed && { opacity: 0.85 },
             ]}
             onPress={handleToggleNightVision}
             accessibilityRole="button"
             accessibilityLabel="Bật tắt hồng ngoại ban đêm"
-            activeOpacity={0.85}
           >
             <View style={[styles.toolIconWrap, NeuStyles.cavity]}>
               <MaterialIcons
@@ -282,7 +290,7 @@ export const CameraDetailScreen: React.FC = () => {
             <Text style={[styles.toolLabel, isNightVision && styles.toolLabelActive]}>
               Hồng ngoại
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         {/* PTZ 4-Way Mechanical D-Pad */}
@@ -293,53 +301,67 @@ export const CameraDetailScreen: React.FC = () => {
 
           <View style={styles.dpadContainer}>
             {/* Up Button */}
-            <TouchableOpacity
-              style={[styles.dpadBtn, styles.dpadUp, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.dpadBtn,
+                styles.dpadUp,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handlePTZMove('up')}
               accessibilityRole="button"
               accessibilityLabel="Xoay camera lên"
-              activeOpacity={0.85}
             >
               <Ionicons name="chevron-up" size={24} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Middle Row (Left - Center - Right) */}
             <View style={styles.dpadMiddleRow}>
-              <TouchableOpacity
-                style={[styles.dpadBtn, NeuStyles.circleRaised]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.dpadBtn,
+                  NeuStyles.circleRaised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={() => handlePTZMove('left')}
                 accessibilityRole="button"
                 accessibilityLabel="Xoay camera sang trái"
-                activeOpacity={0.85}
               >
                 <Ionicons name="chevron-back" size={24} color="#1E293B" />
-              </TouchableOpacity>
+              </Pressable>
 
               <View style={[styles.dpadCenter, NeuStyles.cavity]}>
                 <MaterialCommunityIcons name="axis-arrow" size={18} color="#2563EB" />
               </View>
 
-              <TouchableOpacity
-                style={[styles.dpadBtn, NeuStyles.circleRaised]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.dpadBtn,
+                  NeuStyles.circleRaised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={() => handlePTZMove('right')}
                 accessibilityRole="button"
                 accessibilityLabel="Xoay camera sang phải"
-                activeOpacity={0.85}
               >
                 <Ionicons name="chevron-forward" size={24} color="#1E293B" />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             {/* Down Button */}
-            <TouchableOpacity
-              style={[styles.dpadBtn, styles.dpadDown, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.dpadBtn,
+                styles.dpadDown,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handlePTZMove('down')}
               accessibilityRole="button"
               accessibilityLabel="Xoay camera xuống"
-              activeOpacity={0.85}
             >
               <Ionicons name="chevron-down" size={24} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </GlassCard>
 
@@ -373,15 +395,18 @@ export const CameraDetailScreen: React.FC = () => {
                       </Text>
                     </View>
 
-                    <TouchableOpacity
-                      style={[styles.playBtn, NeuStyles.circleRaised]}
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.playBtn,
+                        NeuStyles.circleRaised,
+                        pressed && { opacity: 0.85 },
+                      ]}
                       onPress={() => Alert.alert('Xem lại video', `Đang tải đoạn video ${event.duration}`)}
                       accessibilityRole="button"
                       accessibilityLabel={`Phát lại video ${event.title}`}
-                      activeOpacity={0.85}
                     >
                       <Ionicons name="play" size={14} color="#2563EB" />
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
 
                   {index < motionEvents.length - 1 && <View style={styles.divider} />}

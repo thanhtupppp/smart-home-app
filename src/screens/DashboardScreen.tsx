@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -23,8 +24,8 @@ import { SectionHeader } from "../components/SectionHeader";
 import { QuickSceneButton } from "../components/QuickSceneButton";
 import { DeviceCard } from "../components/DeviceCard";
 import { RoomCard } from "../components/RoomCard";
+import { Device, Scene } from "../types";
 import { AppNavigationProp } from "../navigation/types";
-import { Device } from "../types";
 
 // Type guard for devices with dedicated detail controller screens
 const isControllableDevice = (
@@ -56,6 +57,16 @@ export const DashboardScreen: React.FC = () => {
     [navigation]
   );
 
+  const renderSceneItem = useCallback(
+    ({ item }: { item: Scene }) => (
+      <QuickSceneButton
+        scene={item}
+        onPress={activateScene}
+      />
+    ),
+    [activateScene]
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#E8ECF2" />
@@ -82,21 +93,15 @@ export const DashboardScreen: React.FC = () => {
           accessibilityLabel="Xem tất cả kịch bản tự động hóa"
         />
 
-        <ScrollView
+        <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.scenesScroll}
           contentContainerStyle={styles.scenesContainer}
-          key={`scenes_${scenes.length}`}
-        >
-          {scenes.map((scene) => (
-            <QuickSceneButton
-              key={scene.id}
-              scene={scene}
-              onPress={() => activateScene(scene.id)}
-            />
-          ))}
-        </ScrollView>
+          data={scenes}
+          keyExtractor={(item) => item.id}
+          renderItem={renderSceneItem}
+        />
 
         {/* 3. Favorite Devices */}
         <SectionHeader

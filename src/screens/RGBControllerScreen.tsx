@@ -1,10 +1,10 @@
-import React, { useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Switch,
   Animated,
@@ -25,6 +25,26 @@ const BRIGHTNESS_MIN = 0;
 const BRIGHTNESS_MAX = 100;
 const BULB_SIZE = 116;
 const GLOW_SIZE = 170;
+
+const COLOR_PRESETS = [
+  { name: 'Cyan Neon', hex: '#00E5FF' },
+  { name: 'Tím Cyber', hex: '#8B5CF6' },
+  { name: 'Hồng Neon', hex: '#EC4899' },
+  { name: 'Đỏ Lửa', hex: '#EF4444' },
+  { name: 'Vàng Nắng', hex: '#F59E0B' },
+  { name: 'Xanh Lá', hex: '#10B981' },
+  { name: 'Xanh Dương', hex: '#3B82F6' },
+  { name: 'Trắng Ấm', hex: '#FFFBEB' },
+  { name: 'Trắng Lạnh', hex: '#E0F2FE' },
+  { name: 'Cam Hoàng Hôn', hex: '#F97316' },
+];
+
+const EFFECT_MODES: { id: 'solid' | 'rainbow' | 'breathing' | 'strobe'; name: string; icon: any }[] = [
+  { id: 'solid', name: 'Đơn sắc', icon: 'palette' },
+  { id: 'breathing', name: 'Nhịp thở', icon: 'favorite' },
+  { id: 'rainbow', name: 'Cầu vồng', icon: 'looks' },
+  { id: 'strobe', name: 'Nhấp nháy', icon: 'flash-on' },
+];
 
 const getLuminance = (hex: string): number => {
   const cleanHex = hex.replace('#', '');
@@ -52,7 +72,7 @@ export const RGBControllerScreen: React.FC = () => {
   const currentMode = useMemo(() => device?.rgbMode || 'solid', [device]);
 
   // Dynamic glow pulse animation for breathing mode
-  const glowAnim = useRef(new Animated.Value(0.35)).current;
+  const [glowAnim] = useState(() => new Animated.Value(0.35));
 
   useEffect(() => {
     let animation: Animated.CompositeAnimation | null = null;
@@ -80,26 +100,6 @@ export const RGBControllerScreen: React.FC = () => {
       if (animation) animation.stop();
     };
   }, [currentMode, device?.isOn, currentBrightness, glowAnim]);
-
-  const colorPresets = [
-    { name: 'Cyan Neon', hex: '#00E5FF' },
-    { name: 'Tím Cyber', hex: '#8B5CF6' },
-    { name: 'Hồng Neon', hex: '#EC4899' },
-    { name: 'Đỏ Lửa', hex: '#EF4444' },
-    { name: 'Vàng Nắng', hex: '#F59E0B' },
-    { name: 'Xanh Lá', hex: '#10B981' },
-    { name: 'Xanh Dương', hex: '#3B82F6' },
-    { name: 'Trắng Ấm', hex: '#FFFBEB' },
-    { name: 'Trắng Lạnh', hex: '#E0F2FE' },
-    { name: 'Cam Hoàng Hôn', hex: '#F97316' },
-  ];
-
-  const effectModes: { id: 'solid' | 'rainbow' | 'breathing' | 'strobe'; name: string; icon: any }[] = [
-    { id: 'solid', name: 'Đơn sắc', icon: 'palette' },
-    { id: 'breathing', name: 'Nhịp thở', icon: 'favorite' },
-    { id: 'rainbow', name: 'Cầu vồng', icon: 'looks' },
-    { id: 'strobe', name: 'Nhấp nháy', icon: 'flash-on' },
-  ];
 
   const handleColorChange = useCallback(
     (hex: string) => {
@@ -162,7 +162,7 @@ export const RGBControllerScreen: React.FC = () => {
                 {
                   backgroundColor: currentColor,
                   opacity: glowAnim,
-                  shadowColor: currentColor,
+                  boxShadow: `0 0 30px ${currentColor}`,
                 },
               ]}
             />
@@ -195,7 +195,7 @@ export const RGBControllerScreen: React.FC = () => {
                 styles.hexDot,
                 {
                   backgroundColor: device.isOn ? currentColor : '#94A3B8',
-                  shadowColor: device.isOn ? currentColor : 'transparent',
+                  boxShadow: device.isOn ? `0 0 4px ${currentColor}` : undefined,
                 },
               ]}
             />
@@ -235,15 +235,18 @@ export const RGBControllerScreen: React.FC = () => {
           </View>
 
           <View style={styles.brightnessControlRow}>
-            <TouchableOpacity
-              style={[styles.stepBtn, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepBtn,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handleBrightnessStep(-BRIGHTNESS_STEP)}
               accessibilityRole="button"
               accessibilityLabel="Giảm 10% độ sáng"
-              activeOpacity={0.85}
             >
               <Ionicons name="remove" size={20} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Visual Brightness Bar Inset Track */}
             <View style={[styles.brightnessBarTrack, NeuStyles.cavity]}>
@@ -258,30 +261,33 @@ export const RGBControllerScreen: React.FC = () => {
               />
             </View>
 
-            <TouchableOpacity
-              style={[styles.stepBtn, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepBtn,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handleBrightnessStep(BRIGHTNESS_STEP)}
               accessibilityRole="button"
               accessibilityLabel="Tăng 10% độ sáng"
-              activeOpacity={0.85}
             >
               <Ionicons name="add" size={20} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Quick Brightness Presets */}
           <View style={styles.quickBrightnessRow}>
             {[25, 50, 75, 100].map((val) => (
-              <TouchableOpacity
+              <Pressable
                 key={val}
-                style={[
+                style={({ pressed }) => [
                   styles.quickBrightBtn,
                   currentBrightness === val ? [NeuStyles.pressed, styles.quickBrightBtnActive] : NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
                 ]}
                 onPress={() => updateDevice(device.id, { brightness: val, isOn: true })}
                 accessibilityRole="button"
                 accessibilityLabel={`Đặt độ sáng ${val}%`}
-                activeOpacity={0.85}
               >
                 <Text
                   style={[
@@ -291,7 +297,7 @@ export const RGBControllerScreen: React.FC = () => {
                 >
                   {val}%
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </GlassCard>
@@ -306,21 +312,21 @@ export const RGBControllerScreen: React.FC = () => {
           </View>
 
           <View style={styles.colorsGrid}>
-            {colorPresets.map((preset) => {
+            {COLOR_PRESETS.map((preset) => {
               const isSelected = currentColor.toLowerCase() === preset.hex.toLowerCase();
               const isLight = getLuminance(preset.hex) > 180;
               return (
                 <View key={preset.hex} style={[styles.colorSocket, NeuStyles.cavity]}>
-                  <TouchableOpacity
-                    style={[
+                  <Pressable
+                    style={({ pressed }) => [
                       styles.colorCircle,
                       { backgroundColor: preset.hex },
                       isSelected && styles.colorCircleSelected,
+                      pressed && { opacity: 0.85 },
                     ]}
                     onPress={() => handleColorChange(preset.hex)}
                     accessibilityRole="button"
                     accessibilityLabel={`Chọn màu ${preset.name}`}
-                    activeOpacity={0.85}
                   >
                     {isSelected && (
                       <Ionicons
@@ -329,7 +335,7 @@ export const RGBControllerScreen: React.FC = () => {
                         color={isLight ? '#1E293B' : '#FFFFFF'}
                       />
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               );
             })}
@@ -346,19 +352,19 @@ export const RGBControllerScreen: React.FC = () => {
           </View>
 
           <View style={styles.effectsRow}>
-            {effectModes.map((mode) => {
+            {EFFECT_MODES.map((mode) => {
               const isSelected = currentMode === mode.id;
               return (
-                <TouchableOpacity
+                <Pressable
                   key={mode.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.effectBtn,
                     isSelected ? [NeuStyles.pressed, styles.effectBtnActive] : NeuStyles.raisedSoft,
+                    pressed && { opacity: 0.85 },
                   ]}
                   onPress={() => handleModeChange(mode.id)}
                   accessibilityRole="button"
                   accessibilityLabel={`Hiệu ứng ${mode.name}`}
-                  activeOpacity={0.85}
                 >
                   <MaterialIcons
                     name={mode.icon}
@@ -373,7 +379,7 @@ export const RGBControllerScreen: React.FC = () => {
                   >
                     {mode.name}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -412,9 +418,6 @@ const styles = StyleSheet.create({
     width: GLOW_SIZE,
     height: GLOW_SIZE,
     borderRadius: GLOW_SIZE / 2,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 30,
   },
   bulbDomeOuter: {
     width: BULB_SIZE,
@@ -441,9 +444,6 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
   },
   colorHexText: {
     fontSize: 12,

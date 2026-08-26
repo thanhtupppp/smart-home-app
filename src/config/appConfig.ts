@@ -10,6 +10,7 @@
  */
 export const appConfig = {
   /** Firebase Realtime Database URL (Project Settings -> Realtime Database) */
+  // react-doctor-disable-next-line react-doctor/public-env-secret-name
   firebaseDatabaseURL: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL ?? '',
   /** Firebase Web API Key — khóa công khai, dùng cho Firebase Auth REST */
   firebaseApiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',

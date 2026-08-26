@@ -43,7 +43,8 @@
     "ios": "expo start --ios --port 8082",
     "web": "expo start --web --port 8082",
     "type-check": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "doctor": "npx react-doctor@latest"
   },
   "private": true
 }

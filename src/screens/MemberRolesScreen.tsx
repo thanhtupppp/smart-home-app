@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useReducer } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
-  TouchableOpacity,
+  FlatList,
+  Pressable,
   StatusBar,
   Alert,
   Modal,
@@ -54,12 +54,174 @@ const ROLE_CONFIG: Record<
   guest: { label: 'Khách', color: '#64748B', icon: 'person-outline' },
 };
 
+const ROLE_TEXT_STYLES = StyleSheet.create({
+  owner: { color: '#2563EB' },
+  admin: { color: '#059669' },
+  member: { color: '#D97706' },
+  guest: { color: '#64748B' },
+});
+
+const STATUS_STYLES = StyleSheet.create({
+  dotActive: { backgroundColor: '#10B981' },
+  dotPending: { backgroundColor: '#F59E0B' },
+  textActive: { color: '#059669' },
+  textPending: { color: '#D97706' },
+});
+
 const getInitials = (name: string): string => {
   if (!name) return 'TV';
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
+
+interface InviteFormState {
+  isModalVisible: boolean;
+  inviteName: string;
+  inviteEmail: string;
+  inviteRole: RoleType;
+  isSubmitting: boolean;
+}
+
+type InviteFormAction =
+  | { type: 'OPEN_MODAL' }
+  | { type: 'CLOSE_MODAL' }
+  | { type: 'SET_NAME'; payload: string }
+  | { type: 'SET_EMAIL'; payload: string }
+  | { type: 'SET_ROLE'; payload: RoleType }
+  | { type: 'SET_SUBMITTING'; payload: boolean }
+  | { type: 'RESET' };
+
+const initialInviteState: InviteFormState = {
+  isModalVisible: false,
+  inviteName: '',
+  inviteEmail: '',
+  inviteRole: 'member',
+  isSubmitting: false,
+};
+
+const inviteReducer = (state: InviteFormState, action: InviteFormAction): InviteFormState => {
+  switch (action.type) {
+    case 'OPEN_MODAL':
+      return { ...state, isModalVisible: true };
+    case 'CLOSE_MODAL':
+      return { ...state, isModalVisible: false };
+    case 'SET_NAME':
+      return { ...state, inviteName: action.payload };
+    case 'SET_EMAIL':
+      return { ...state, inviteEmail: action.payload };
+    case 'SET_ROLE':
+      return { ...state, inviteRole: action.payload };
+    case 'SET_SUBMITTING':
+      return { ...state, isSubmitting: action.payload };
+    case 'RESET':
+      return initialInviteState;
+    default:
+      return state;
+  }
+};
+
+interface MemberRowItemProps {
+  member: Member;
+  onEdit: (m: Member) => void;
+  onDelete: (m: Member) => void;
+}
+
+const MemberRowItem = React.memo<MemberRowItemProps>(({ member: m, onEdit, onDelete }) => {
+  const roleInfo = ROLE_CONFIG[m.role] || ROLE_CONFIG.member;
+  const isOwner = m.role === 'owner';
+
+  const handleEdit = useCallback(() => {
+    onEdit(m);
+  }, [m, onEdit]);
+
+  const handleDelete = useCallback(() => {
+    onDelete(m);
+  }, [m, onDelete]);
+
+  const isActivatedOrOwner = isOwner || m.isActivated;
+  const statusDotStyle = isActivatedOrOwner ? STATUS_STYLES.dotActive : STATUS_STYLES.dotPending;
+  const statusTextStyle = isActivatedOrOwner ? STATUS_STYLES.textActive : STATUS_STYLES.textPending;
+  const roleTextStyle = ROLE_TEXT_STYLES[m.role] || ROLE_TEXT_STYLES.member;
+
+  return (
+    <View style={[styles.memberCard, NeuStyles.raised]}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.memberMainTouch,
+          pressed && { opacity: 0.7 },
+        ]}
+        onPress={handleEdit}
+      >
+        <View style={[styles.avatar, NeuStyles.circleRaised]}>
+          <Text style={styles.avatarText}>{m.avatarInitials}</Text>
+        </View>
+
+        <View style={styles.infoCol}>
+          <View style={styles.nameRow}>
+            <Text style={[Typography.titleMedium, styles.memberName]} numberOfLines={1}>
+              {m.name}
+            </Text>
+            <View style={[styles.badge, NeuStyles.cavity]}>
+              <Ionicons name={roleInfo.icon} size={11} color={roleInfo.color} />
+              <Text style={[styles.badgeText, roleTextStyle]}>
+                {roleInfo.label}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.emailText} numberOfLines={1}>{m.email}</Text>
+          
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, statusDotStyle]} />
+            <Text style={[styles.statusText, statusTextStyle]}>
+              {isOwner
+                ? 'Chủ nhà sở hữu'
+                : m.isActivated
+                ? 'Đã kích hoạt'
+                : 'Chờ đăng nhập'}
+            </Text>
+            <Text style={styles.dotDivider}>•</Text>
+            <Text style={styles.accessText}>
+              {m.roomsCount} phòng
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+
+      {/* Action Buttons */}
+      <View style={styles.actionButtonsCol}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.editRoleBtn,
+            NeuStyles.raisedSoft,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={handleEdit}
+          accessibilityRole="button"
+          accessibilityLabel="Chỉnh sửa quyền"
+        >
+          <Ionicons name="shield-outline" size={16} color="#2563EB" />
+        </Pressable>
+
+        {!isOwner && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.deleteBtn,
+              NeuStyles.raisedSoft,
+              pressed && { opacity: 0.85 },
+            ]}
+            onPress={handleDelete}
+            accessibilityRole="button"
+            accessibilityLabel="Xóa thành viên"
+          >
+            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+});
 
 export const MemberRolesScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
@@ -71,90 +233,71 @@ export const MemberRolesScreen: React.FC = () => {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [inviteState, dispatchInvite] = useReducer(inviteReducer, initialInviteState);
 
-  // Invite Modal State
-  const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
-  const [inviteName, setInviteName] = useState<string>('');
-  const [inviteEmail, setInviteEmail] = useState<string>('');
-  const [inviteRole, setInviteRole] = useState<RoleType>('member');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const { isModalVisible, inviteName, inviteEmail, inviteRole, isSubmitting } = inviteState;
 
-  // Load members on mount
-  const loadMembers = useCallback(async () => {
-    setIsLoading(true);
+  // Load Members from Cache & Firebase
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
+  useEffect(() => {
+    let isMounted = true;
 
-    const currentOwner: Member = {
-      id: user?.uid || 'owner_01',
-      name: user?.displayName ? `${user.displayName} (Tôi - Chủ nhà)` : 'Chủ nhà (Tôi)',
-      email: user?.email || 'admin@smarthome.vn',
-      role: 'owner',
-      avatarInitials: userInitials,
-      roomsCount: 4,
-      isActivated: true,
-      lastLoginAt: user?.lastLoginAt || new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+    const loadMembers = async () => {
+      setIsLoading(true);
+
+      const ownerMember: Member = {
+        id: user?.uid || 'user_owner',
+        name: user?.displayName || 'Chủ nhà (Bạn)',
+        email: user?.email || 'owner@smarthome.vn',
+        role: 'owner',
+        avatarInitials: userInitials,
+        roomsCount: 4,
+        isActivated: true,
+        lastLoginAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      let currentMembers: Member[] = [ownerMember];
+
+      // 1. Load cached
+      try {
+        const cached = await safeStorage.getItem(MEMBERS_STORAGE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            currentMembers = parsed;
+            if (isMounted) setMembers(currentMembers);
+          }
+        }
+      } catch {
+        // Ignore
+      }
+
+      if (isMounted) setMembers(currentMembers);
+
+      // 2. Fetch Firebase remote
+      try {
+        const remoteMembers = await firebaseService.fetchMembers();
+        if (remoteMembers && Object.keys(remoteMembers).length > 0 && isMounted) {
+          const list: Member[] = Object.values(remoteMembers);
+          const hasOwner = list.some((m) => m.role === 'owner');
+          const merged = hasOwner ? list : [ownerMember, ...list];
+          setMembers(merged);
+          await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(merged));
+        }
+      } catch {
+        // Fallback
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
     };
 
-    let initialList: Member[] = [currentOwner];
-
-    // 1. Read from safeStorage cache first
-    try {
-      const cached = await safeStorage.getItem(MEMBERS_STORAGE_KEY);
-      if (cached) {
-        const parsed: Member[] = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const hasOwner = parsed.some((m) => m.role === 'owner');
-          initialList = hasOwner ? parsed : [currentOwner, ...parsed];
-          setMembers(initialList);
-        }
-      }
-    } catch {
-      // Ignore
-    }
-
-    if (initialList.length === 1) {
-      setMembers(initialList);
-    }
-
-    // 2. Sync with Firebase Realtime Database
-    try {
-      const data = await firebaseService.fetchMembers();
-      if (data && Object.keys(data).length > 0) {
-        const fetchedList: Member[] = Object.values(data);
-        const hasOwner = fetchedList.some(
-          (m) => m.role === 'owner' || (user?.email && m.email.toLowerCase() === user.email.toLowerCase())
-        );
-
-        let finalList = fetchedList;
-        if (!hasOwner) {
-          finalList = [currentOwner, ...fetchedList];
-          firebaseService.saveMember(currentOwner);
-        } else {
-          // Keep owner at index 0
-          finalList = [
-            ...finalList.filter((m) => m.role === 'owner'),
-            ...finalList.filter((m) => m.role !== 'owner'),
-          ];
-        }
-
-        setMembers(finalList);
-        await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(finalList));
-      } else {
-        const newList = [currentOwner];
-        setMembers(newList);
-        await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(newList));
-        await firebaseService.saveMember(currentOwner);
-      }
-    } catch {
-      // Offline fallback
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user, userInitials]);
-
-  useEffect(() => {
     loadMembers();
-  }, [loadMembers]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user, userInitials]);
 
   // Handle Delete Member
   const handleDeleteMember = useCallback((member: Member) => {
@@ -172,18 +315,16 @@ export const MemberRolesScreen: React.FC = () => {
           text: 'Xóa thành viên',
           style: 'destructive',
           onPress: async () => {
-            setMembers((prev) => {
-              const updated = prev.filter((m) => m.id !== member.id);
-              safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(updated));
-              return updated;
-            });
+            const updated = members.filter((m) => m.id !== member.id);
+            setMembers(updated);
+            await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(updated));
             await firebaseService.removeMember(member.id);
             Alert.alert('Thành công', `Đã xóa thành viên ${member.name} khỏi gia đình.`);
           },
         },
       ]
     );
-  }, []);
+  }, [members]);
 
   // Handle Edit Role
   const handleEditRole = useCallback((member: Member) => {
@@ -201,11 +342,9 @@ export const MemberRolesScreen: React.FC = () => {
           text: 'Quản trị viên (Admin)',
           onPress: async () => {
             const updated: Member = { ...member, role: 'admin' };
-            setMembers((prev) => {
-              const list = prev.map((m) => (m.id === member.id ? updated : m));
-              safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-              return list;
-            });
+            const list = members.map((m) => (m.id === member.id ? updated : m));
+            setMembers(list);
+            await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
             await firebaseService.saveMember(updated);
             Alert.alert('Thành công', `Đã nâng quyền Quản trị viên cho ${member.name}.`);
           },
@@ -214,11 +353,9 @@ export const MemberRolesScreen: React.FC = () => {
           text: 'Thành viên thường (Member)',
           onPress: async () => {
             const updated: Member = { ...member, role: 'member' };
-            setMembers((prev) => {
-              const list = prev.map((m) => (m.id === member.id ? updated : m));
-              safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-              return list;
-            });
+            const list = members.map((m) => (m.id === member.id ? updated : m));
+            setMembers(list);
+            await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
             await firebaseService.saveMember(updated);
             Alert.alert('Thành công', `Đã đổi thành viên ${member.name} thành Thành viên thường.`);
           },
@@ -227,11 +364,9 @@ export const MemberRolesScreen: React.FC = () => {
           text: 'Khách (Guest)',
           onPress: async () => {
             const updated: Member = { ...member, role: 'guest' };
-            setMembers((prev) => {
-              const list = prev.map((m) => (m.id === member.id ? updated : m));
-              safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
-              return list;
-            });
+            const list = members.map((m) => (m.id === member.id ? updated : m));
+            setMembers(list);
+            await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
             await firebaseService.saveMember(updated);
             Alert.alert('Thành công', `Đã đặt vai trò Khách cho ${member.name}.`);
           },
@@ -243,7 +378,7 @@ export const MemberRolesScreen: React.FC = () => {
         },
       ]
     );
-  }, [handleDeleteMember]);
+  }, [members, handleDeleteMember]);
 
   // Submit Invite Member
   const handleSubmitInvite = useCallback(async () => {
@@ -252,49 +387,77 @@ export const MemberRolesScreen: React.FC = () => {
       return;
     }
 
-    if (!inviteEmail.includes('@') || !inviteEmail.includes('.')) {
-      Alert.alert('Email không hợp lệ', 'Vui lòng nhập đúng định dạng Email (vd: user@gmail.com).');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(inviteEmail.trim())) {
+      Alert.alert('Email không hợp lệ', 'Vui lòng kiểm tra lại định dạng email.');
       return;
     }
 
-    // Check duplicate
-    const exists = members.some((m) => m.email.toLowerCase() === inviteEmail.trim().toLowerCase());
-    if (exists) {
-      Alert.alert('Đã tồn tại', 'Thành viên với email này đã có trong danh sách ngôi nhà.');
+    if (members.some((m) => m.email.toLowerCase() === inviteEmail.trim().toLowerCase())) {
+      Alert.alert('Đã tồn tại', 'Thành viên này đã có trong danh sách gia đình.');
       return;
     }
 
-    setIsSubmitting(true);
+    dispatchInvite({ type: 'SET_SUBMITTING', payload: true });
     try {
       const newMember: Member = {
-        id: `mem_${Date.now()}`,
+        id: `member_${Date.now()}`,
         name: inviteName.trim(),
         email: inviteEmail.trim(),
         role: inviteRole,
-        avatarInitials: getInitials(inviteName),
-        roomsCount: inviteRole === 'admin' ? 4 : inviteRole === 'member' ? 3 : 1,
+        avatarInitials: getInitials(inviteName.trim()),
+        roomsCount: inviteRole === 'admin' ? 4 : 2,
+        isActivated: false,
         createdAt: new Date().toISOString(),
       };
 
-      setMembers((prev) => {
-        const updated = [...prev, newMember];
-        safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(updated));
-        return updated;
-      });
-
+      const updated = [...members, newMember];
+      setMembers(updated);
+      await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(updated));
       await firebaseService.saveMember(newMember);
 
-      setIsModalVisible(false);
-      setInviteName('');
-      setInviteEmail('');
-      setInviteRole('member');
+      dispatchInvite({ type: 'RESET' });
       Alert.alert('Đã mời thành công', `Đã thêm ${newMember.name} vào danh sách gia đình với vai trò ${ROLE_CONFIG[newMember.role].label}.`);
     } catch {
       Alert.alert('Lỗi', 'Không thể kết nối lưu thành viên vào Firebase.');
     } finally {
-      setIsSubmitting(false);
+      dispatchInvite({ type: 'SET_SUBMITTING', payload: false });
     }
   }, [inviteName, inviteEmail, inviteRole, members]);
+
+  const renderMemberItem = useCallback(
+    ({ item }: { item: Member }) => (
+      <MemberRowItem
+        member={item}
+        onEdit={handleEditRole}
+        onDelete={handleDeleteMember}
+      />
+    ),
+    [handleEditRole, handleDeleteMember]
+  );
+
+  const renderHeader = () => (
+    <View style={styles.headingRow}>
+      <Text style={styles.sectionHeading}>DANH SÁCH THÀNH VIÊN ({members.length})</Text>
+      {isLoading && <ActivityIndicator size="small" color="#2563EB" />}
+    </View>
+  );
+
+  const renderFooter = () => (
+    <Pressable
+      style={({ pressed }) => [
+        styles.inviteBtn,
+        NeuStyles.raisedSoft,
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={() => dispatchInvite({ type: 'OPEN_MODAL' })}
+      accessibilityRole="button"
+      accessibilityLabel="Mời thành viên mới vào gia đình"
+    >
+      <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
+      <Text style={styles.inviteBtnText}>Mời thành viên mới</Text>
+    </Pressable>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -306,120 +469,23 @@ export const MemberRolesScreen: React.FC = () => {
         subtitle={`${members.length} tài khoản trong gia đình`}
       />
 
-      <ScrollView
+      <FlatList
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.headingRow}>
-          <Text style={styles.sectionHeading}>DANH SÁCH THÀNH VIÊN ({members.length})</Text>
-          {isLoading && <ActivityIndicator size="small" color="#2563EB" />}
-        </View>
-
-        {members.map((m) => {
-          const roleInfo = ROLE_CONFIG[m.role] || ROLE_CONFIG.member;
-          const isOwner = m.role === 'owner';
-
-          return (
-            <View
-              key={m.id}
-              style={[styles.memberCard, NeuStyles.raised]}
-            >
-              <TouchableOpacity
-                style={styles.memberMainTouch}
-                onPress={() => handleEditRole(m)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.avatar, NeuStyles.circleRaised]}>
-                  <Text style={styles.avatarText}>{m.avatarInitials}</Text>
-                </View>
-
-                <View style={styles.infoCol}>
-                  <View style={styles.nameRow}>
-                    <Text style={[Typography.titleMedium, styles.memberName]} numberOfLines={1}>
-                      {m.name}
-                    </Text>
-                    <View style={[styles.badge, NeuStyles.cavity]}>
-                      <Ionicons name={roleInfo.icon} size={11} color={roleInfo.color} />
-                      <Text style={[styles.badgeText, { color: roleInfo.color }]}>
-                        {roleInfo.label}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.emailText} numberOfLines={1}>{m.email}</Text>
-                  
-                  <View style={styles.statusRow}>
-                    <View
-                      style={[
-                        styles.statusDot,
-                        { backgroundColor: (isOwner || m.isActivated) ? '#10B981' : '#F59E0B' },
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: (isOwner || m.isActivated) ? '#059669' : '#D97706' },
-                      ]}
-                    >
-                      {isOwner
-                        ? 'Chủ nhà sở hữu'
-                        : m.isActivated
-                        ? 'Đã kích hoạt'
-                        : 'Chờ đăng nhập'}
-                    </Text>
-                    <Text style={styles.dotDivider}>•</Text>
-                    <Text style={styles.accessText}>
-                      {m.roomsCount} phòng
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Action Buttons */}
-              <View style={styles.actionButtonsCol}>
-                <TouchableOpacity
-                  style={[styles.editRoleBtn, NeuStyles.raisedSoft]}
-                  onPress={() => handleEditRole(m)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Chỉnh sửa quyền"
-                >
-                  <Ionicons name="shield-outline" size={16} color="#2563EB" />
-                </TouchableOpacity>
-
-                {!isOwner && (
-                  <TouchableOpacity
-                    style={[styles.deleteBtn, NeuStyles.raisedSoft]}
-                    onPress={() => handleDeleteMember(m)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Xóa thành viên"
-                  >
-                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          );
-        })}
-
-        <TouchableOpacity
-          style={[styles.inviteBtn, NeuStyles.raisedSoft]}
-          onPress={() => setIsModalVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Mời thành viên mới vào gia đình"
-          activeOpacity={0.85}
-        >
-          <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.inviteBtnText}>Mời thành viên mới</Text>
-        </TouchableOpacity>
-      </ScrollView>
+        data={members}
+        keyExtractor={(m) => m.id}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        renderItem={renderMemberItem}
+      />
 
       {/* Invite Member Modal */}
       <Modal
         visible={isModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setIsModalVisible(false)}
+        onRequestClose={() => dispatchInvite({ type: 'CLOSE_MODAL' })}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -431,12 +497,12 @@ export const MemberRolesScreen: React.FC = () => {
                 <Ionicons name="person-add" size={20} color="#2563EB" />
                 <Text style={styles.modalTitle}>Mời thành viên mới</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => setIsModalVisible(false)}
+              <Pressable
+                onPress={() => dispatchInvite({ type: 'CLOSE_MODAL' })}
                 style={styles.modalCloseBtn}
               >
                 <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             <Text style={styles.modalDesc}>
@@ -452,7 +518,7 @@ export const MemberRolesScreen: React.FC = () => {
                 placeholder="Ví dụ: Nguyễn Văn A"
                 placeholderTextColor="#94A3B8"
                 value={inviteName}
-                onChangeText={setInviteName}
+                onChangeText={(text) => dispatchInvite({ type: 'SET_NAME', payload: text })}
               />
             </View>
 
@@ -467,7 +533,7 @@ export const MemberRolesScreen: React.FC = () => {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={inviteEmail}
-                onChangeText={setInviteEmail}
+                onChangeText={(text) => dispatchInvite({ type: 'SET_EMAIL', payload: text })}
               />
             </View>
 
@@ -478,13 +544,14 @@ export const MemberRolesScreen: React.FC = () => {
                 const config = ROLE_CONFIG[r];
                 const isSelected = inviteRole === r;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={r}
-                    style={[
+                    style={({ pressed }) => [
                       styles.roleOptionBtn,
                       isSelected ? styles.roleOptionSelected : NeuStyles.raisedSoft,
+                      pressed && { opacity: 0.85 },
                     ]}
-                    onPress={() => setInviteRole(r)}
+                    onPress={() => dispatchInvite({ type: 'SET_ROLE', payload: r })}
                   >
                     <Ionicons
                       name={config.icon}
@@ -499,23 +566,31 @@ export const MemberRolesScreen: React.FC = () => {
                     >
                       {config.label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
 
             {/* Submit Buttons */}
             <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalCancelBtn, NeuStyles.raisedSoft]}
-                onPress={() => setIsModalVisible(false)}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => dispatchInvite({ type: 'CLOSE_MODAL' })}
                 disabled={isSubmitting}
               >
                 <Text style={styles.modalCancelText}>Hủy</Text>
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[styles.modalConfirmBtn, NeuStyles.raised]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  NeuStyles.raised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleSubmitInvite}
                 disabled={isSubmitting}
               >
@@ -524,7 +599,7 @@ export const MemberRolesScreen: React.FC = () => {
                 ) : (
                   <Text style={styles.modalConfirmText}>Gửi lời mời</Text>
                 )}
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>

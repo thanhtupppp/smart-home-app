@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
   Modal,
@@ -135,14 +135,18 @@ export const RoomDetailScreen: React.FC = () => {
         title={room.name}
         subtitle={`${room.activeCount}/${room.deviceCount} thiết bị đang bật`}
         rightAction={
-          <TouchableOpacity
-            style={[styles.headerEditBtn, NeuStyles.circleRaised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerEditBtn,
+              NeuStyles.circleRaised,
+              pressed && { opacity: 0.85 },
+            ]}
             onPress={handleOpenEdit}
             accessibilityRole="button"
             accessibilityLabel="Đổi tên phòng"
           >
             <Ionicons name="pencil" size={15} color="#2563EB" />
-          </TouchableOpacity>
+          </Pressable>
         }
       />
 
@@ -173,27 +177,33 @@ export const RoomDetailScreen: React.FC = () => {
 
           {/* Quick All On / All Off for this Room */}
           <View style={styles.quickActionsRow}>
-            <TouchableOpacity
-              style={[styles.actionBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={handleTurnAllOn}
               accessibilityRole="button"
               accessibilityLabel="Bật tất cả thiết bị trong phòng"
-              activeOpacity={0.85}
             >
               <View style={styles.greenLed} />
               <Text style={styles.btnTextOn}>Bật tất cả</Text>
-            </TouchableOpacity>
+            </Pressable>
 
-            <TouchableOpacity
-              style={[styles.actionBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={handleTurnAllOff}
               accessibilityRole="button"
               accessibilityLabel="Tắt tất cả thiết bị trong phòng"
-              activeOpacity={0.85}
             >
               <View style={styles.redLed} />
               <Text style={styles.btnTextOff}>Tắt tất cả</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </GlassCard>
 
@@ -208,15 +218,18 @@ export const RoomDetailScreen: React.FC = () => {
           <View style={[styles.emptyState, NeuStyles.raised]}>
             <MaterialIcons name="devices" size={44} color="#94A3B8" />
             <Text style={styles.emptyText}>Chưa có thiết bị nào trong phòng này.</Text>
-            <TouchableOpacity
-              style={[styles.addDeviceBtn, NeuStyles.raisedSoft]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.addDeviceBtn,
+                NeuStyles.raisedSoft,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => navigation.navigate('AddDevice')}
               accessibilityRole="button"
               accessibilityLabel="Thêm thiết bị vào phòng"
-              activeOpacity={0.85}
             >
               <Text style={styles.addDeviceBtnText}>+ Thêm thiết bị vào phòng</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : (
           roomDevices.map((dev) => (
@@ -234,14 +247,17 @@ export const RoomDetailScreen: React.FC = () => {
         )}
 
         {/* Delete Room Option */}
-        <TouchableOpacity
-          style={[styles.deleteRoomBtn, NeuStyles.raisedSoft]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.deleteRoomBtn,
+            NeuStyles.raisedSoft,
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={handleDeleteRoom}
-          activeOpacity={0.85}
         >
           <Ionicons name="trash-outline" size={18} color="#EF4444" />
           <Text style={styles.deleteRoomText}>Xóa khu vực này</Text>
-        </TouchableOpacity>
+        </Pressable>
       </ScrollView>
 
       {/* Edit Room Name Modal */}
@@ -265,18 +281,26 @@ export const RoomDetailScreen: React.FC = () => {
               />
             </View>
             <View style={styles.modalActionRow}>
-              <TouchableOpacity
-                style={[styles.modalCancelBtn, NeuStyles.raisedSoft]}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  NeuStyles.raisedSoft,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={() => setIsEditModalVisible(false)}
               >
                 <Text style={styles.modalCancelText}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSaveBtn, NeuStyles.raised]}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalSaveBtn,
+                  NeuStyles.raised,
+                  pressed && { opacity: 0.85 },
+                ]}
                 onPress={handleSaveEdit}
               >
                 <Text style={styles.modalSaveText}>Lưu</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>

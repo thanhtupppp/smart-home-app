@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   StatusBar,
   Switch,
 } from 'react-native';
@@ -32,6 +32,21 @@ const modeColors: Record<'cool' | 'heat' | 'dry' | 'fan' | 'eco', string> = {
   eco: '#059669',  // Eco green
 };
 
+const MODES: { id: 'cool' | 'heat' | 'dry' | 'fan' | 'eco'; name: string; icon: any }[] = [
+  { id: 'cool', name: 'Làm lạnh', icon: 'ac-unit' },
+  { id: 'heat', name: 'Sưởi ấm', icon: 'local-fire-department' },
+  { id: 'dry', name: 'Hút ẩm', icon: 'water-drop' },
+  { id: 'fan', name: 'Quạt gió', icon: 'toys' },
+  { id: 'eco', name: 'Tiết kiệm', icon: 'eco' },
+];
+
+const FAN_SPEEDS: { id: 'auto' | 'low' | 'medium' | 'high'; name: string }[] = [
+  { id: 'auto', name: 'Tự động' },
+  { id: 'low', name: 'Thấp' },
+  { id: 'medium', name: 'Vừa' },
+  { id: 'high', name: 'Mạnh' },
+];
+
 export const ACControllerScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'ACController'>>();
@@ -48,21 +63,6 @@ export const ACControllerScreen: React.FC = () => {
   const currentTemp = useMemo(() => device?.currentTemperature || 26.2, [device]);
   const acMode = useMemo(() => device?.acMode || 'cool', [device]);
   const fanSpeed = useMemo(() => device?.fanSpeed || 'auto', [device]);
-
-  const modes: { id: 'cool' | 'heat' | 'dry' | 'fan' | 'eco'; name: string; icon: any }[] = [
-    { id: 'cool', name: 'Làm lạnh', icon: 'ac-unit' },
-    { id: 'heat', name: 'Sưởi ấm', icon: 'local-fire-department' },
-    { id: 'dry', name: 'Hút ẩm', icon: 'water-drop' },
-    { id: 'fan', name: 'Quạt gió', icon: 'toys' },
-    { id: 'eco', name: 'Tiết kiệm', icon: 'eco' },
-  ];
-
-  const fanSpeeds: { id: 'auto' | 'low' | 'medium' | 'high'; name: string }[] = [
-    { id: 'auto', name: 'Tự động' },
-    { id: 'low', name: 'Thấp' },
-    { id: 'medium', name: 'Vừa' },
-    { id: 'high', name: 'Mạnh' },
-  ];
 
   const handleTempChange = useCallback(
     (delta: number) => {
@@ -134,7 +134,7 @@ export const ACControllerScreen: React.FC = () => {
                       styles.modeLed,
                       {
                         backgroundColor: device.isOn ? currentModeColor : '#94A3B8',
-                        shadowColor: device.isOn ? currentModeColor : 'transparent',
+                        boxShadow: device.isOn ? `0 0 6px ${currentModeColor}` : 'none',
                       },
                     ]}
                   />
@@ -148,25 +148,31 @@ export const ACControllerScreen: React.FC = () => {
 
           {/* Stepper Mechanical Round Buttons */}
           <View style={styles.stepperRow}>
-            <TouchableOpacity
-              style={[styles.stepperBtn, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepperBtn,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handleTempChange(-1)}
               accessibilityRole="button"
               accessibilityLabel="Giảm 1 độ"
-              activeOpacity={0.85}
             >
               <Ionicons name="remove" size={26} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
 
-            <TouchableOpacity
-              style={[styles.stepperBtn, NeuStyles.circleRaised]}
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepperBtn,
+                NeuStyles.circleRaised,
+                pressed && { opacity: 0.85 },
+              ]}
               onPress={() => handleTempChange(1)}
               accessibilityRole="button"
               accessibilityLabel="Tăng 1 độ"
-              activeOpacity={0.85}
             >
               <Ionicons name="add" size={26} color="#1E293B" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
 
@@ -196,20 +202,20 @@ export const ACControllerScreen: React.FC = () => {
             Chế độ hoạt động
           </Text>
           <View style={styles.modesRow}>
-            {modes.map((m) => {
+            {MODES.map((m) => {
               const isSelected = acMode === m.id;
               const modeItemColor = modeColors[m.id];
               return (
-                <TouchableOpacity
+                <Pressable
                   key={m.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.modeBtn,
                     isSelected ? [NeuStyles.pressed, styles.modeBtnActive, { borderColor: modeItemColor }] : NeuStyles.raisedSoft,
+                    pressed && { opacity: 0.85 },
                   ]}
                   onPress={() => handleModeChange(m.id)}
                   accessibilityRole="button"
                   accessibilityLabel={`Chế độ ${m.name}`}
-                  activeOpacity={0.85}
                 >
                   <MaterialIcons
                     name={m.icon}
@@ -224,7 +230,7 @@ export const ACControllerScreen: React.FC = () => {
                   >
                     {m.name}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -236,19 +242,19 @@ export const ACControllerScreen: React.FC = () => {
             Tốc độ gió
           </Text>
           <View style={styles.speedsRow}>
-            {fanSpeeds.map((s) => {
+            {FAN_SPEEDS.map((s) => {
               const isSelected = fanSpeed === s.id;
               return (
-                <TouchableOpacity
+                <Pressable
                   key={s.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.speedBtn,
                     isSelected ? [NeuStyles.pressed, styles.speedBtnActive] : NeuStyles.raisedSoft,
+                    pressed && { opacity: 0.85 },
                   ]}
                   onPress={() => handleSpeedChange(s.id)}
                   accessibilityRole="button"
                   accessibilityLabel={`Tốc độ gió ${s.name}`}
-                  activeOpacity={0.85}
                 >
                   <Text
                     style={[
@@ -258,7 +264,7 @@ export const ACControllerScreen: React.FC = () => {
                   >
                     {s.name}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -380,9 +386,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 3,
+    boxShadow: '0 0 4px rgba(0, 0, 0, 0.2)',
   },
   modeSubText: {
     fontSize: 11,

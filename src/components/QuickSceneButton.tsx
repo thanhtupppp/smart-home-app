@@ -6,10 +6,14 @@ import { Scene } from '../types';
 
 interface QuickSceneButtonProps {
   scene: Scene;
-  onPress: () => void;
+  onPress: (id: string) => void;
 }
 
-export const QuickSceneButton: React.FC<QuickSceneButtonProps> = ({ scene, onPress }) => {
+export const QuickSceneButton: React.FC<QuickSceneButtonProps> = React.memo(({ scene, onPress }) => {
+  const handlePress = React.useCallback(() => {
+    onPress(scene.id);
+  }, [onPress, scene.id]);
+
   const renderIcon = () => {
     const iconColor = scene.isActive ? '#FFFFFF' : '#475569';
     switch (scene.id) {
@@ -36,7 +40,7 @@ export const QuickSceneButton: React.FC<QuickSceneButtonProps> = ({ scene, onPre
           ? [NeuStyles.pressed, styles.pressedContainer]
           : NeuStyles.raisedSoft,
       ]}
-      onPress={onPress}
+      onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={`Ngữ cảnh ${scene.name}`}
     >
@@ -65,7 +69,7 @@ export const QuickSceneButton: React.FC<QuickSceneButtonProps> = ({ scene, onPre
       )}
     </Pressable>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -106,10 +110,7 @@ const styles = StyleSheet.create({
   },
   activeGlowWrapper: {
     marginLeft: 8,
-    shadowColor: '#38BDF8',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
+    boxShadow: '0 0 6px #38BDF8',
   },
   activeDot: {
     width: 6,

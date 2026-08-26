@@ -102,7 +102,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
             <View
               style={[
                 styles.iconGlowDot,
-                { backgroundColor: accentColor, shadowColor: accentColor },
+                { backgroundColor: accentColor, boxShadow: `0 0 6px ${accentColor}` },
               ]}
             />
           )}
@@ -141,7 +141,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
                     : device.isOn
                     ? accentColor
                     : '#CBD5E1',
-                  shadowColor: device.isOn ? accentColor : 'transparent',
+                  boxShadow: device.isOn ? `0 0 4px ${accentColor}` : 'none',
                 },
               ]}
             />
@@ -235,9 +235,7 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
+    boxShadow: '0 0 4px rgba(0, 0, 0, 0.2)',
   },
   switchWrapper: {
     transform: [{ scaleX: 0.95 }, { scaleY: 0.95 }],
@@ -270,9 +268,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 4,
+    boxShadow: '0 0 4px rgba(0, 0, 0, 0.2)',
   },
   subStatusText: {
     color: '#475569',

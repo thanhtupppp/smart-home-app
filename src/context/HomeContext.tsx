@@ -81,12 +81,17 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [scenes, setScenes] = useState<Scene[]>(initialScenes);
   const [automations, setAutomations] = useState<Automation[]>(initialAutomations);
   const [alerts, setAlerts] = useState<AlertNotification[]>(initialAlerts);
-  const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig>(firebaseService.getConfig());
-  const [isConfigReady, setIsConfigReady] = useState<boolean>(firebaseService.isConfigLoaded());
+  const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig>(() => firebaseService.getConfig());
+  const [isConfigReady, setIsConfigReady] = useState<boolean>(() => firebaseService.isConfigLoaded());
   const [connectionStatus, setConnectionStatus] = useState<HomeConnectionStatus>('offline');
-  const [activeHomeId, setActiveHomeIdState] = useState<string>(firebaseService.getActiveHomeId());
+  const [activeHomeId, setActiveHomeIdState] = useState<string>(() => firebaseService.getActiveHomeId());
   /** deviceId → commandId đang chờ ack từ thiết bị */
   const [commandPending, setCommandPending] = useState<Record<string, string>>({});
+  const commandPendingRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    commandPendingRef.current = commandPending;
+  }, [commandPending]);
+
   /** Ref giữ snapshot devices để rollback optimistic state */
   const devicesSnapshotRef = useRef<Record<string, Device>>({});
   /** Ref giữ timeout handles để clear khi ack đến */
@@ -139,12 +144,14 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Load cached devices and listen to remote Firebase changes
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
     const initDevices = async () => {
       try {
         const cached = await safeStorage.getItem(DEVICES_STORAGE_KEY);
+        if (!isMounted) return;
         if (cached) {
           const parsed: Device[] = JSON.parse(cached);
           if (Array.isArray(parsed) && isMounted) {
@@ -160,6 +167,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!isMounted) return;
         if (result.ok) {
           const list: Device[] = firebaseService.normalizeDevices(result.data);
+          if (!isMounted) return;
           setDevices(list);
           await safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(list));
         }
@@ -175,32 +183,28 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDevices(remoteDevices);
         safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(remoteDevices));
 
-        // Kiểm tra ack: nếu reported.lastAppliedCommandId khớp với commandId đang pending
+        // Kiểm tra ack: clear timeouts nếu reported.lastAppliedCommandId khớp
+        for (const dev of remoteDevices) {
+          const pendingCmdId = commandPendingRef.current[dev.id];
+          if (pendingCmdId && dev.reported?.lastAppliedCommandId === pendingCmdId) {
+            if (commandTimeoutsRef.current[pendingCmdId]) {
+              clearTimeout(commandTimeoutsRef.current[pendingCmdId]);
+              delete commandTimeoutsRef.current[pendingCmdId];
+            }
+          }
+        }
+
+        // Pure updater function without side effects
         setCommandPending((prev) => {
           const updates: Record<string, string> = { ...prev };
           let changed = false;
-          const timeoutsToClear: string[] = [];
-
           for (const dev of remoteDevices) {
             const pendingCmdId = prev[dev.id];
             if (pendingCmdId && dev.reported?.lastAppliedCommandId === pendingCmdId) {
               delete updates[dev.id];
               changed = true;
-              timeoutsToClear.push(pendingCmdId);
             }
           }
-
-          if (timeoutsToClear.length > 0) {
-            setTimeout(() => {
-              for (const cmdId of timeoutsToClear) {
-                if (commandTimeoutsRef.current[cmdId]) {
-                  clearTimeout(commandTimeoutsRef.current[cmdId]);
-                  delete commandTimeoutsRef.current[cmdId];
-                }
-              }
-            }, 0);
-          }
-
           return changed ? updates : prev;
         });
       }
@@ -283,22 +287,24 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Đặt timeout rollback sau 15s nếu thiết bị không ack
       const timeoutHandle = setTimeout(async () => {
-        setCommandPending((prev) => {
-          if (prev[deviceId] !== commandId) return prev;
-          const updated = { ...prev };
-          delete updated[deviceId];
+        if (commandPendingRef.current[deviceId] === commandId) {
+          setCommandPending((prev) => {
+            if (prev[deviceId] !== commandId) return prev;
+            const updated = { ...prev };
+            delete updated[deviceId];
+            return updated;
+          });
 
-          // Rollback về trạng thái trước lệnh
+          // Rollback về trạng thái trước lệnh bên ngoài state updater
           const snapshot = devicesSnapshotRef.current[deviceId];
           if (snapshot) {
             setDevices((prevDevs) =>
               prevDevs.map((d) => (d.id === deviceId ? snapshot : d))
             );
           }
-          return updated;
-        });
+          await firebaseService.updateCommandStatus(commandId, 'timeout');
+        }
 
-        await firebaseService.updateCommandStatus(commandId, 'timeout');
         delete commandTimeoutsRef.current[commandId];
       }, COMMAND_TIMEOUT_MS);
 
@@ -548,6 +554,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [automations]);
 
   // Sync Scenes & Automations from Firebase
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
@@ -555,15 +562,19 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initScenesAndAutomations = async () => {
       try {
         const remoteScenes = await firebaseService.fetchScenes();
+        if (!isMounted) return;
         if (remoteScenes && Object.keys(remoteScenes).length > 0 && isMounted) {
           const list: Scene[] = Object.values(remoteScenes);
+          if (!isMounted) return;
           setScenes(list);
           await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(list));
         }
 
         const remoteAutomations = await firebaseService.fetchAutomations();
+        if (!isMounted) return;
         if (remoteAutomations && Object.keys(remoteAutomations).length > 0 && isMounted) {
           const list: Automation[] = Object.values(remoteAutomations);
+          if (!isMounted) return;
           setAutomations(list);
           await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(list));
         }
@@ -606,9 +617,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(list));
           }
         } else {
-          for (const r of localRooms) {
-            await firebaseService.saveRoom(r);
-          }
+          await Promise.all(localRooms.map((r) => firebaseService.saveRoom(r)));
           await safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(localRooms));
         }
       } catch {
@@ -728,10 +737,12 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const markAllAlertsAsRead = useCallback(() => {
-    alerts
-      .filter((a) => !a.isRead)
-      .forEach((a) => firebaseService.markAlertRead(a.id));
-    setAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
+    for (const a of alerts) {
+      if (!a.isRead) {
+        firebaseService.markAlertRead(a.id);
+      }
+    }
+    setAlerts((prev) => prev.map((a) => (a.isRead ? a : { ...a, isRead: true })));
   }, [alerts]);
 
   /** Chuyển sang nhà khác — reset cache và restart Firebase sync */

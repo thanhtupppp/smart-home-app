@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, NeuStyles, NeuPalette } from '../theme';
 import { useHome } from '../context/HomeContext';
@@ -64,14 +64,17 @@ export const Header: React.FC<HeaderProps> = ({
     <View style={styles.container}>
       <View style={styles.leftSection}>
         {showBack ? (
-          <TouchableOpacity
+          <Pressable
             onPress={onBackPress}
-            style={[styles.circleBtn, NeuStyles.circleRaised]}
-            activeOpacity={0.8}
+            style={({ pressed }) => [
+              styles.circleBtn,
+              NeuStyles.circleRaised,
+              pressed && { opacity: 0.8 },
+            ]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons name="arrow-back" size={20} color="#1E293B" />
-          </TouchableOpacity>
+          </Pressable>
         ) : (
           <View>
             <Text style={[Typography.titleMedium, styles.subtitle]}>
@@ -92,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
               styles.statusLed,
               {
                 backgroundColor: badge.led,
-                shadowColor: badge.ledShadow,
+                boxShadow: badge.ledShadow === 'transparent' ? 'none' : `0 0 6px ${badge.ledShadow}`,
               },
             ]}
           />
@@ -103,10 +106,13 @@ export const Header: React.FC<HeaderProps> = ({
         {rightAction}
 
         {onNotificationPress && (
-          <TouchableOpacity
-            style={[styles.circleBtn, NeuStyles.circleRaised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.circleBtn,
+              NeuStyles.circleRaised,
+              pressed && { opacity: 0.8 },
+            ]}
             onPress={onNotificationPress}
-            activeOpacity={0.8}
           >
             <Ionicons name="notifications-outline" size={20} color="#334155" />
             {unreadAlertCount > 0 && (
@@ -114,17 +120,20 @@ export const Header: React.FC<HeaderProps> = ({
                 <Text style={styles.badgeText}>{unreadAlertCount}</Text>
               </View>
             )}
-          </TouchableOpacity>
+          </Pressable>
         )}
 
         {onSettingsPress && (
-          <TouchableOpacity
-            style={[styles.circleBtn, NeuStyles.circleRaised]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.circleBtn,
+              NeuStyles.circleRaised,
+              pressed && { opacity: 0.8 },
+            ]}
             onPress={onSettingsPress}
-            activeOpacity={0.8}
           >
             <Ionicons name="settings-outline" size={20} color="#334155" />
-          </TouchableOpacity>
+          </Pressable>
         )}
       </View>
     </View>
@@ -164,6 +173,8 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cloudBadge: {
     flexDirection: 'row',
@@ -177,9 +188,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 4,
+    boxShadow: '0 0 4px rgba(0, 0, 0, 0.2)',
   },
   cloudText: {
     fontSize: 11,
@@ -199,10 +208,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 3,
+    boxShadow: '0 0 4px #EF4444',
   },
   badgeText: {
     color: '#FFFFFF',

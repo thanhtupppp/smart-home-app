@@ -103,10 +103,7 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 3,
+    boxShadow: '0 0 4px #10B981',
   },
   liveText: {
     fontSize: 10,

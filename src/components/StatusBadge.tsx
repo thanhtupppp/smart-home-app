@@ -33,7 +33,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   return (
     <View style={[styles.badge, NeuStyles.cavity]}>
       {dot && (
-        <View style={[styles.dotWrapper, { shadowColor: currentTheme.dot }]}>
+        <View style={[styles.dotWrapper, { boxShadow: currentTheme.glow === 'transparent' ? 'none' : `0 0 4px ${currentTheme.dot}` }]}>
           <View style={[styles.dot, { backgroundColor: currentTheme.dot }]} />
         </View>
       )}
@@ -55,9 +55,7 @@ const styles = StyleSheet.create({
   },
   dotWrapper: {
     marginRight: 6,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
+    boxShadow: '0 0 4px rgba(0, 0, 0, 0.1)',
   },
   dot: {
     width: 7,
