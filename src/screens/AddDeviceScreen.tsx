@@ -67,7 +67,7 @@ const DEVICE_TYPES: DeviceTypeOption[] = [
 
 export const AddDeviceScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
-  const { rooms, addDevice, firebaseConfig } = useHome();
+  const { rooms, addDevice, firebaseConfig, activeHomeId } = useHome();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedType, setSelectedType] = useState<DeviceType>('light');
@@ -123,11 +123,10 @@ export const AddDeviceScreen: React.FC = () => {
         );
       }
     } catch {
-      // Không bịa danh sách giả — báo để người dùng nhập tay
       setScannedNetworks([]);
       Alert.alert(
         'Không kết nối được ESP32',
-        'Không quét được WiFi từ thiết bị. Hãy chắc chắn điện thoại đang kết nối vào WiFi phát từ ESP32 (ESP32_Setup_xxxx), hoặc nhập tên WiFi thủ công bên dưới.'
+        'Không quét được WiFi từ thiết bị. Hãy chắc chắn điện thoại đang kết nối vào WiFi phát từ ESP32 (Tu-SmartHome), hoặc nhập tên WiFi thủ công bên dưới.'
       );
     } finally {
       setIsScanning(false);
@@ -140,9 +139,9 @@ export const AddDeviceScreen: React.FC = () => {
       case 'light':
         return { brightness: 80 };
       case 'rgb_light':
-        return { brightness: 80, color: '#00E5FF' };
+        return { brightness: 80, color: '#00E5FF', rgbMode: 'solid' };
       case 'ac':
-        return { temperature: 24 };
+        return { temperature: 24, acMode: 'cool' };
       case 'sensor':
         return { currentTemperature: undefined, humidity: undefined };
       default:
@@ -169,6 +168,7 @@ export const AddDeviceScreen: React.FC = () => {
       password: wifiPass.trim(),
       databaseUrl: firebaseConfig.databaseURL,
       apiKey: firebaseConfig.apiKey || '',
+      homeId: activeHomeId,
       deviceId: generatedDeviceId,
       deviceName: deviceName.trim(),
       roomName: targetRoom.name,
@@ -194,16 +194,26 @@ export const AddDeviceScreen: React.FC = () => {
     setIsConnecting(false);
 
     const addAndFinish = (simulated: boolean) => {
+      const typeDefaults = buildTypeDefaults(selectedType);
       const newDev: Device = {
         id: generatedDeviceId,
         name: deviceName.trim(),
         type: selectedType,
         roomId: targetRoom.id,
         roomName: targetRoom.name,
-        // Chỉ coi là online khi ESP32 thật sự phản hồi thành công
         isOnline: !simulated && esp32Ok,
         isOn: false,
-        ...buildTypeDefaults(selectedType),
+        lastUpdated: new Date().toISOString(),
+        ...typeDefaults,
+        desired: {
+          isOn: false,
+          ...typeDefaults,
+        },
+        reported: {
+          isOn: false,
+          isOnline: !simulated && esp32Ok,
+          lastSeenAt: Date.now(),
+        },
       };
       setPairingSimulated(simulated);
       addDevice(newDev);
@@ -215,10 +225,10 @@ export const AddDeviceScreen: React.FC = () => {
       return;
     }
 
-    // ESP32 không phản hồi → hỏi rõ người dùng thay vì tự báo thành công giả
+    // ESP32 không phản hồi → hỏi rõ người dùng
     Alert.alert(
       'Không liên lạc được ESP32',
-      'Thiết bị không phản hồi lệnh cấu hình. Hãy kiểm tra:\n• Điện thoại đã kết nối WiFi phát từ ESP32 (ESP32_Setup_xxxx)?\n• ESP32 đã được cấp nguồn và đang ở chế độ cấu hình?\n\nBạn có thể thêm thiết bị ở chế độ mô phỏng (offline) để dùng thử giao diện, hoặc hủy để thử lại.',
+      'Thiết bị không phản hồi lệnh cấu hình. Hãy kiểm tra:\n• Điện thoại đã kết nối WiFi phát từ ESP32 (Tu-SmartHome)?\n• ESP32 đã được cấp nguồn và đang ở chế độ AP?\n\nBạn có thể thêm thiết bị ở chế độ mô phỏng (offline) để dùng thử giao diện, hoặc hủy để thử lại.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
@@ -227,7 +237,7 @@ export const AddDeviceScreen: React.FC = () => {
         },
       ]
     );
-  }, [wifiSsid, wifiPass, selectedRoomId, selectedType, deviceName, rooms, firebaseConfig, addDevice]);
+  }, [wifiSsid, wifiPass, selectedRoomId, selectedType, deviceName, rooms, firebaseConfig, activeHomeId, addDevice]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

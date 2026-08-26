@@ -60,6 +60,11 @@ export const initialScenes: Scene[] = [
     description: 'Bật đèn phòng khách, bật điều hòa 24°C, mở rèm',
     isActive: true,
     actionsCount: 4,
+    actions: [
+      { deviceId: 'dev_light_living_01', patch: { isOn: true } },
+      { deviceId: 'dev_rgb_living_01', patch: { isOn: true } },
+      { deviceId: 'dev_ac_living_01', patch: { isOn: true, temperature: 24, acMode: 'cool' } },
+    ],
   },
   {
     id: 'scene_leave_home',
@@ -68,6 +73,8 @@ export const initialScenes: Scene[] = [
     description: 'Tắt toàn bộ đèn & điều hòa, kích hoạt an ninh',
     isActive: false,
     actionsCount: 8,
+    // actions = [] → HomeContext sẽ dùng turnAllDevices(false)
+    actions: [],
   },
   {
     id: 'scene_sleep',
@@ -76,6 +83,11 @@ export const initialScenes: Scene[] = [
     description: 'Tắt đèn phòng khách, hạ nhiệt độ phòng ngủ 26°C',
     isActive: false,
     actionsCount: 5,
+    actions: [
+      { deviceId: 'dev_light_living_01', patch: { isOn: false } },
+      { deviceId: 'dev_rgb_living_01', patch: { isOn: false } },
+      { deviceId: 'dev_ac_bedroom_01', patch: { isOn: true, temperature: 26, acMode: 'cool' } },
+    ],
   },
   {
     id: 'scene_movie',
@@ -84,6 +96,10 @@ export const initialScenes: Scene[] = [
     description: 'Đèn LED chuyển màu Neon, giảm độ sáng 20%',
     isActive: false,
     actionsCount: 3,
+    actions: [
+      { deviceId: 'dev_rgb_living_01', patch: { isOn: true, color: '#7c4dff', brightness: 25, rgbMode: 'breathing' } },
+      { deviceId: 'dev_light_living_01', patch: { isOn: false } },
+    ],
   },
 ];
 

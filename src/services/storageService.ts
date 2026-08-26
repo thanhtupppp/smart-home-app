@@ -36,6 +36,17 @@ class LocalStorageService {
       // Ignore
     }
   }
+
+  public async clear(): Promise<void> {
+    for (const key of Object.keys(memoryStore)) {
+      delete memoryStore[key];
+    }
+    try {
+      await AsyncStorage.clear();
+    } catch (e) {
+      // Ignore
+    }
+  }
 }
 
 /**

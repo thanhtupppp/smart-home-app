@@ -14,9 +14,13 @@ import { initialDevices, initialRooms, initialScenes, initialAutomations, initia
 import { firebaseService } from '../services/firebaseService';
 import { safeStorage } from '../services/storageService';
 import { authService } from '../services/authService';
+import { commandQueueService } from '../services/commandQueueService';
+import { notificationService } from '../services/notificationService';
 
 const ROOMS_STORAGE_KEY = 'tu_smarthome_rooms_cache';
 const DEVICES_STORAGE_KEY = 'tu_smarthome_devices_cache';
+const SCENES_STORAGE_KEY = 'tu_smarthome_scenes_cache';
+const AUTOMATIONS_STORAGE_KEY = 'tu_smarthome_automations_cache';
 
 /** Timeout (ms) trước khi rollback optimistic state nếu thiết bị không ack */
 const COMMAND_TIMEOUT_MS = 15_000;
@@ -39,7 +43,13 @@ interface HomeContextType {
   updateDevice: (id: string, updates: Partial<Device>) => void;
   turnAllDevices: (isOn: boolean, roomId?: string) => void;
   activateScene: (id: string) => void;
+  addScene: (scene: Scene) => Promise<void>;
+  updateScene: (sceneId: string, updates: Partial<Scene>) => Promise<void>;
+  removeScene: (sceneId: string) => Promise<void>;
   toggleAutomation: (id: string) => void;
+  addAutomation: (automation: Automation) => Promise<void>;
+  updateAutomation: (automationId: string, updates: Partial<Automation>) => Promise<void>;
+  removeAutomation: (automationId: string) => Promise<void>;
   addDevice: (device: Device) => void;
   removeDevice: (deviceId: string) => Promise<boolean>;
   clearAllDevices: () => Promise<boolean>;
@@ -50,6 +60,7 @@ interface HomeContextType {
   markAlertAsRead: (id: string) => void;
   markAllAlertsAsRead: () => void;
   setActiveHomeId: (homeId: string) => Promise<void>;
+  flushOfflineQueue: () => Promise<void>;
 }
 
 const HomeContext = createContext<HomeContextType | undefined>(undefined);
@@ -80,8 +91,10 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const devicesSnapshotRef = useRef<Record<string, Device>>({});
   /** Ref giữ timeout handles để clear khi ack đến */
   const commandTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /** Ref theo dõi alerts đã thông báo để không spam push */
+  const notifiedAlertIdsRef = useRef<Set<string>>(new Set());
 
-  // Load persisted Firebase config (custom project URL, API key, demo mode) before any sync
+  // Load persisted Firebase config before any sync
   useEffect(() => {
     let isMounted = true;
     if (firebaseService.isConfigLoaded()) return;
@@ -96,12 +109,33 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Subscribe connection status từ firebaseService
+  // Subscribe connection status từ firebaseService & tự động flush offline queue khi online
   useEffect(() => {
     const unsub = firebaseService.subscribeConnectionStatus((status) => {
       setConnectionStatus(status);
+      if (status === 'connected') {
+        commandQueueService.flush();
+      }
     });
     return unsub;
+  }, []);
+
+  // Register push notifications and save push token if logged in
+  useEffect(() => {
+    const user = authService.getCurrentUser();
+    if (user && !user.isDemo) {
+      notificationService.registerForPushNotifications().then((token) => {
+        if (token) {
+          firebaseService.saveMember({
+            id: user.uid,
+            name: user.displayName,
+            email: user.email,
+            role: user.role,
+            lastLoginAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+      });
+    }
   }, []);
 
   // Load cached devices and listen to remote Firebase changes
@@ -125,11 +159,10 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const result = await firebaseService.fetchDevicesDetailed();
         if (!isMounted) return;
         if (result.ok) {
-          const list: Device[] = result.data ? Object.values(result.data) : [];
+          const list: Device[] = firebaseService.normalizeDevices(result.data);
           setDevices(list);
           await safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(list));
         }
-        // result.ok === false (lỗi mạng/auth): giữ nguyên cache
       } catch {
         // Ignore
       }
@@ -143,7 +176,6 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(remoteDevices));
 
         // Kiểm tra ack: nếu reported.lastAppliedCommandId khớp với commandId đang pending
-        // thì clear timeout và xoá khỏi pending map
         setCommandPending((prev) => {
           const updates: Record<string, string> = { ...prev };
           let changed = false;
@@ -152,7 +184,6 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (pendingCmdId && dev.reported?.lastAppliedCommandId === pendingCmdId) {
               delete updates[dev.id];
               changed = true;
-              // Clear timeout
               if (commandTimeoutsRef.current[pendingCmdId]) {
                 clearTimeout(commandTimeoutsRef.current[pendingCmdId]);
                 delete commandTimeoutsRef.current[pendingCmdId];
@@ -208,29 +239,45 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [devices]);
 
   /**
-   * Gửi command qua firebaseService.sendCommand() với optimistic update.
-   * Tự động rollback nếu thiết bị không ack trong COMMAND_TIMEOUT_MS.
+   * Gửi command qua firebaseService.sendCommand() với optimistic update + offline queue.
    */
   const sendDeviceCommand = useCallback(
     async (deviceId: string, command: DeviceCommand) => {
-      const uid = authService.getCurrentUser()?.uid || 'demo';
+      const user = authService.getCurrentUser();
+      const uid = user?.uid || 'demo';
 
-      // Optimistic update đã được caller thực hiện trước khi gọi hàm này
+      // Nếu đang offline -> đưa vào offline command queue
+      if (connectionStatus === 'offline') {
+        await commandQueueService.enqueue(deviceId, command, uid);
+        return;
+      }
+
       const commandId = await firebaseService.sendCommand(deviceId, command, uid);
-      if (!commandId) return; // Demo mode hoặc lỗi — không track pending
+      if (!commandId) {
+        // Fallback: đưa vào queue để thử lại khi có mạng
+        await commandQueueService.enqueue(deviceId, command, uid);
+        return;
+      }
+
+      // Log event
+      firebaseService.logEvent({
+        type: 'device_command',
+        title: `Lệnh ${command.type}`,
+        description: `Người dùng ${user?.displayName || 'User'} gửi lệnh ${command.type} tới ${deviceId}`,
+        actor: user?.displayName || 'App',
+      });
 
       // Track pending
       setCommandPending((prev) => ({ ...prev, [deviceId]: commandId }));
 
-      // Đặt timeout rollback
+      // Đặt timeout rollback sau 15s nếu thiết bị không ack
       const timeoutHandle = setTimeout(async () => {
         setCommandPending((prev) => {
-          // Chỉ rollback nếu command này vẫn còn pending
           if (prev[deviceId] !== commandId) return prev;
           const updated = { ...prev };
           delete updated[deviceId];
 
-          // Rollback về trạng thái trước khi command
+          // Rollback về trạng thái trước lệnh
           const snapshot = devicesSnapshotRef.current[deviceId];
           if (snapshot) {
             setDevices((prevDevs) =>
@@ -240,14 +287,13 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return updated;
         });
 
-        // Cập nhật command status trên Firebase
         await firebaseService.updateCommandStatus(commandId, 'timeout');
         delete commandTimeoutsRef.current[commandId];
       }, COMMAND_TIMEOUT_MS);
 
       commandTimeoutsRef.current[commandId] = timeoutHandle;
     },
-    []
+    [connectionStatus]
   );
 
   const toggleDevice = useCallback((id: string) => {
@@ -269,26 +315,30 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       prev.map((dev) => {
         if (dev.id === id) {
           const updated = { ...dev, ...updates };
-          // Chuyển updates thành DeviceCommand phù hợp
           if (updates.isOn !== undefined) {
             sendDeviceCommand(id, { type: 'power', value: updates.isOn });
           } else if (updates.brightness !== undefined) {
-            sendDeviceCommand(id, { type: 'brightness', value: updates.brightness });
+            commandQueueService.debounce(`brightness_${id}`, () => {
+              sendDeviceCommand(id, { type: 'brightness', value: updates.brightness! });
+            }, 250);
           } else if (updates.temperature !== undefined) {
-            sendDeviceCommand(id, { type: 'temperature', value: updates.temperature });
+            commandQueueService.debounce(`temp_${id}`, () => {
+              sendDeviceCommand(id, { type: 'temperature', value: updates.temperature! });
+            }, 300);
           } else if (updates.color !== undefined) {
-            sendDeviceCommand(id, {
-              type: 'rgb',
-              color: updates.color,
-              brightness: updates.brightness,
-              mode: updates.rgbMode,
-            });
+            commandQueueService.debounce(`color_${id}`, () => {
+              sendDeviceCommand(id, {
+                type: 'rgb',
+                color: updates.color!,
+                brightness: updates.brightness,
+                mode: updates.rgbMode,
+              });
+            }, 300);
           } else if (updates.acMode !== undefined) {
             sendDeviceCommand(id, { type: 'acMode', value: updates.acMode });
           } else if (updates.fanSpeed !== undefined) {
             sendDeviceCommand(id, { type: 'fanSpeed', value: updates.fanSpeed });
           } else {
-            // Fallback: sync toàn bộ patch
             firebaseService.syncDeviceState({ id, ...updates });
           }
           return updated;
@@ -321,99 +371,180 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }, 3000);
 
-    // Tìm scene trong danh sách hiện tại
-    setScenes((prevScenes) => {
-      const scene = prevScenes.find((s) => s.id === sceneId);
-
-      if (scene?.actions && scene.actions.length > 0) {
-        // ✅ Data-driven: chạy từ actions trong Firebase/mockData
-        for (const action of scene.actions) {
-          const patch = action.patch;
-          setDevices((prevDevs) =>
-            prevDevs.map((d) => {
-              if (d.id !== action.deviceId) return d;
-              const updated = { ...d, ...patch };
-              // Gửi command cho từng action
-              if (patch.isOn !== undefined) {
-                sendDeviceCommand(action.deviceId, { type: 'power', value: patch.isOn });
-              }
-              if (patch.brightness !== undefined) {
-                sendDeviceCommand(action.deviceId, { type: 'brightness', value: patch.brightness });
-              }
-              if (patch.temperature !== undefined) {
-                sendDeviceCommand(action.deviceId, { type: 'temperature', value: patch.temperature });
-              }
-              if (patch.color !== undefined) {
-                sendDeviceCommand(action.deviceId, {
-                  type: 'rgb',
-                  color: patch.color,
-                  brightness: patch.brightness,
-                  mode: patch.rgbMode,
-                });
-              }
-              if (patch.acMode !== undefined) {
-                sendDeviceCommand(action.deviceId, { type: 'acMode', value: patch.acMode });
-              }
-              return updated;
-            })
-          );
-        }
-      } else {
-        // 🔄 Legacy fallback: hard-code cho 4 scene mặc định
-        if (sceneId === 'scene_arrive_home') {
-          setDevices((prevDevs) =>
-            prevDevs.map((d) => {
-              if (d.roomId === 'room_living' && (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')) {
-                sendDeviceCommand(d.id, { type: 'power', value: true });
-                return { ...d, isOn: true };
-              }
-              return d;
-            })
-          );
-        } else if (sceneId === 'scene_leave_home') {
-          turnAllDevices(false);
-        } else if (sceneId === 'scene_sleep') {
-          setDevices((prevDevs) =>
-            prevDevs.map((d) => {
-              if ((d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living') {
-                sendDeviceCommand(d.id, { type: 'power', value: false });
-                return { ...d, isOn: false };
-              }
-              if (d.type === 'ac' && d.roomId === 'room_bedroom_master') {
-                sendDeviceCommand(d.id, { type: 'temperature', value: 26 });
-                sendDeviceCommand(d.id, { type: 'power', value: true });
-                return { ...d, isOn: true, temperature: 26, acMode: 'cool' };
-              }
-              return d;
-            })
-          );
-        } else if (sceneId === 'scene_movie') {
-          setDevices((prevDevs) =>
-            prevDevs.map((d) => {
-              if (d.type === 'rgb_light') {
-                sendDeviceCommand(d.id, { type: 'rgb', color: '#7c4dff', brightness: 25, mode: 'breathing' });
-                sendDeviceCommand(d.id, { type: 'power', value: true });
-                return { ...d, isOn: true, color: '#7c4dff', brightness: 25, rgbMode: 'breathing' };
-              }
-              if (d.type === 'light' && d.roomId === 'room_living') {
-                sendDeviceCommand(d.id, { type: 'power', value: false });
-                return { ...d, isOn: false };
-              }
-              return d;
-            })
-          );
-        }
-      }
-
-      return prevScenes;
+    const scene = scenes.find((s) => s.id === sceneId);
+    firebaseService.logEvent({
+      type: 'scene_activated',
+      title: `Kích hoạt Ngữ cảnh`,
+      description: `Ngữ cảnh "${scene?.name || sceneId}" đã được kích hoạt`,
+      actor: authService.getCurrentUser()?.displayName || 'User',
     });
-  }, [sendDeviceCommand, turnAllDevices]);
+
+    if (scene?.actions && scene.actions.length > 0) {
+      for (const action of scene.actions) {
+        const patch = action.patch;
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => {
+            if (d.id !== action.deviceId) return d;
+            const updated = { ...d, ...patch };
+            if (patch.isOn !== undefined) {
+              sendDeviceCommand(action.deviceId, { type: 'power', value: patch.isOn });
+            }
+            if (patch.brightness !== undefined) {
+              sendDeviceCommand(action.deviceId, { type: 'brightness', value: patch.brightness });
+            }
+            if (patch.temperature !== undefined) {
+              sendDeviceCommand(action.deviceId, { type: 'temperature', value: patch.temperature });
+            }
+            if (patch.color !== undefined) {
+              sendDeviceCommand(action.deviceId, {
+                type: 'rgb',
+                color: patch.color,
+                brightness: patch.brightness,
+                mode: patch.rgbMode,
+              });
+            }
+            if (patch.acMode !== undefined) {
+              sendDeviceCommand(action.deviceId, { type: 'acMode', value: patch.acMode });
+            }
+            return updated;
+          })
+        );
+      }
+    } else {
+      if (sceneId === 'scene_arrive_home') {
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => {
+            if (d.roomId === 'room_living' && (d.type === 'light' || d.type === 'ac' || d.type === 'rgb_light')) {
+              sendDeviceCommand(d.id, { type: 'power', value: true });
+              return { ...d, isOn: true };
+            }
+            return d;
+          })
+        );
+      } else if (sceneId === 'scene_leave_home') {
+        turnAllDevices(false);
+      } else if (sceneId === 'scene_sleep') {
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => {
+            if ((d.type === 'light' || d.type === 'rgb_light') && d.roomId === 'room_living') {
+              sendDeviceCommand(d.id, { type: 'power', value: false });
+              return { ...d, isOn: false };
+            }
+            if (d.type === 'ac' && d.roomId === 'room_bedroom_master') {
+              sendDeviceCommand(d.id, { type: 'temperature', value: 26 });
+              sendDeviceCommand(d.id, { type: 'power', value: true });
+              return { ...d, isOn: true, temperature: 26, acMode: 'cool' };
+            }
+            return d;
+          })
+        );
+      } else if (sceneId === 'scene_movie') {
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => {
+            if (d.type === 'rgb_light') {
+              sendDeviceCommand(d.id, { type: 'rgb', color: '#7c4dff', brightness: 25, mode: 'breathing' });
+              sendDeviceCommand(d.id, { type: 'power', value: true });
+              return { ...d, isOn: true, color: '#7c4dff', brightness: 25, rgbMode: 'breathing' };
+            }
+            if (d.type === 'light' && d.roomId === 'room_living') {
+              sendDeviceCommand(d.id, { type: 'power', value: false });
+              return { ...d, isOn: false };
+            }
+            return d;
+          })
+        );
+      }
+    }
+  }, [scenes, sendDeviceCommand, turnAllDevices]);
+
+  // ─── Scene CRUD ──────────────────────────────────────────────────────────
+
+  const addScene = async (newScene: Scene) => {
+    const updated = [...scenes.filter((s) => s.id !== newScene.id), newScene];
+    setScenes(updated);
+    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
+    await firebaseService.saveScene(newScene);
+  };
+
+  const updateScene = async (sceneId: string, updates: Partial<Scene>) => {
+    const updated = scenes.map((s) => (s.id === sceneId ? { ...s, ...updates } : s));
+    setScenes(updated);
+    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
+    const target = updated.find((s) => s.id === sceneId);
+    if (target) await firebaseService.saveScene(target);
+  };
+
+  const removeScene = async (sceneId: string) => {
+    const updated = scenes.filter((s) => s.id !== sceneId);
+    setScenes(updated);
+    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
+    await firebaseService.removeScene(sceneId);
+  };
+
+  // ─── Automation CRUD ─────────────────────────────────────────────────────
 
   const toggleAutomation = (id: string) => {
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, isEnabled: !a.isEnabled } : a))
-    );
+    setAutomations((prev) => {
+      const updated = prev.map((a) => (a.id === id ? { ...a, isEnabled: !a.isEnabled } : a));
+      safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
+      const target = updated.find((a) => a.id === id);
+      if (target) firebaseService.saveAutomation(target);
+      return updated;
+    });
   };
+
+  const addAutomation = async (newAutomation: Automation) => {
+    const updated = [...automations.filter((a) => a.id !== newAutomation.id), newAutomation];
+    setAutomations(updated);
+    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
+    await firebaseService.saveAutomation(newAutomation);
+  };
+
+  const updateAutomation = async (automationId: string, updates: Partial<Automation>) => {
+    const updated = automations.map((a) => (a.id === automationId ? { ...a, ...updates } : a));
+    setAutomations(updated);
+    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
+    const target = updated.find((a) => a.id === automationId);
+    if (target) await firebaseService.saveAutomation(target);
+  };
+
+  const removeAutomation = async (automationId: string) => {
+    const updated = automations.filter((a) => a.id !== automationId);
+    setAutomations(updated);
+    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
+    await firebaseService.removeAutomation(automationId);
+  };
+
+  // Sync Scenes & Automations from Firebase
+  useEffect(() => {
+    if (!isConfigReady) return;
+    let isMounted = true;
+
+    const initScenesAndAutomations = async () => {
+      try {
+        const remoteScenes = await firebaseService.fetchScenes();
+        if (remoteScenes && Object.keys(remoteScenes).length > 0 && isMounted) {
+          const list: Scene[] = Object.values(remoteScenes);
+          setScenes(list);
+          await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(list));
+        }
+
+        const remoteAutomations = await firebaseService.fetchAutomations();
+        if (remoteAutomations && Object.keys(remoteAutomations).length > 0 && isMounted) {
+          const list: Automation[] = Object.values(remoteAutomations);
+          setAutomations(list);
+          await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(list));
+        }
+      } catch {
+        // Fallback
+      }
+    };
+
+    initScenesAndAutomations();
+    return () => {
+      isMounted = false;
+    };
+  }, [isConfigReady, activeHomeId]);
 
   // Sync rooms from cache & Firebase
   useEffect(() => {
@@ -459,7 +590,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [isConfigReady, activeHomeId]);
 
-  // Load alerts từ Firebase
+  // Load alerts từ Firebase & trigger Push Notification cho alert mới
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
@@ -469,12 +600,27 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const list = await firebaseService.fetchAlerts();
       if (!isMounted || list === null) return;
       setAlerts(list);
+      list.forEach((a) => notifiedAlertIdsRef.current.add(a.id));
     };
 
     initAlerts();
 
     const unsubscribe = firebaseService.subscribeAlerts((remoteAlerts) => {
-      if (isMounted) setAlerts(remoteAlerts);
+      if (isMounted) {
+        setAlerts(remoteAlerts);
+        // Check for new unread alerts to trigger notification
+        remoteAlerts.forEach((a) => {
+          if (!a.isRead && !notifiedAlertIdsRef.current.has(a.id)) {
+            notifiedAlertIdsRef.current.add(a.id);
+            notificationService.sendLocalAlert({
+              title: a.title || '🚨 Cảnh Báo SmartHome',
+              body: a.message || 'Phát hiện sự kiện bất thường.',
+              data: { alertId: a.id, type: a.type },
+              sound: true,
+            });
+          }
+        });
+      }
     });
 
     return () => {
@@ -490,6 +636,12 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return updated;
     });
     firebaseService.saveDevice(newDevice);
+    firebaseService.logEvent({
+      type: 'device_added',
+      title: 'Thêm thiết bị mới',
+      description: `Thiết bị ${newDevice.name} đã được thêm vào ${newDevice.roomName}`,
+      actor: authService.getCurrentUser()?.displayName || 'User',
+    });
   };
 
   const removeDevice = async (deviceId: string) => {
@@ -564,14 +716,16 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const setActiveHomeId = async (homeId: string) => {
     setActiveHomeIdState(homeId);
     await firebaseService.setActiveHome(homeId);
-    // Xóa cache thiết bị/phòng cũ
     await safeStorage.removeItem(DEVICES_STORAGE_KEY);
     await safeStorage.removeItem(ROOMS_STORAGE_KEY);
     setDevices([]);
     setRooms(initialRooms);
   };
 
-  // Cleanup command timeouts khi unmount
+  const flushOfflineQueue = async () => {
+    await commandQueueService.flush();
+  };
+
   useEffect(() => {
     return () => {
       Object.values(commandTimeoutsRef.current).forEach(clearTimeout);
@@ -599,7 +753,13 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateDevice,
         turnAllDevices,
         activateScene,
+        addScene,
+        updateScene,
+        removeScene,
         toggleAutomation,
+        addAutomation,
+        updateAutomation,
+        removeAutomation,
         addDevice,
         removeDevice,
         clearAllDevices,
@@ -610,6 +770,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
         markAlertAsRead,
         markAllAlertsAsRead,
         setActiveHomeId,
+        flushOfflineQueue,
       }}
     >
       {children}

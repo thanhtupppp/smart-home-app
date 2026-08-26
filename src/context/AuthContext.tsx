@@ -87,9 +87,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async (): Promise<void> => {
-    // Xóa home cache trước khi signOut để không leak data giữa sessions
+    // Xóa home cache & local storage trước khi signOut để không leak data giữa sessions
     const { firebaseService } = await import('../services/firebaseService');
+    const { safeStorage } = await import('../services/storageService');
     await firebaseService.clearActiveHome();
+    await safeStorage.clear();
     await authService.signOut();
   };
 

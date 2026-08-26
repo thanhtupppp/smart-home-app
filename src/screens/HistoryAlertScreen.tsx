@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,37 +6,100 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, NeuStyles, NeuPalette } from '../theme';
 import { useHome } from '../context/HomeContext';
 import { Header } from '../components/Header';
 import { AppNavigationProp } from '../navigation/types';
+import { firebaseService } from '../services/firebaseService';
 
 // Constants
 const ICON_SIZE = 20;
-const ICON_WRAP_SIZE = 40;
 const UNREAD_DOT_SIZE = 8;
 
-type FilterType = 'all' | 'security' | 'device';
+type FilterType = 'all' | 'alert' | 'activity' | 'security';
+
+interface HistoryItem {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  type: 'security' | 'warning' | 'info' | 'device' | 'activity';
+  isRead?: boolean;
+  actor?: string;
+}
 
 const FILTER_CHIPS = [
   { id: 'all', label: 'Tất cả' },
+  { id: 'alert', label: 'Cảnh báo' },
+  { id: 'activity', label: 'Nhật ký lệnh' },
   { id: 'security', label: 'An ninh' },
-  { id: 'device', label: 'Thiết bị' },
 ] as const;
 
 export const HistoryAlertScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
-  const { alerts, markAlertAsRead, markAllAlertsAsRead } = useHome();
+  const { alerts, markAlertAsRead, markAllAlertsAsRead, activeHomeId } = useHome();
   const [filterType, setFilterType] = useState<FilterType>('all');
+  const [logs, setLogs] = useState<HistoryItem[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
-  const filteredAlerts = useMemo(() => {
-    if (filterType === 'all') return alerts;
-    return alerts.filter((a) => a.type === filterType);
-  }, [alerts, filterType]);
+  // Fetch real audit logs from Firebase
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAuditLogs = async () => {
+      setIsLoadingLogs(true);
+      try {
+        const rawLogs = await firebaseService.fetchLogs(30);
+        if (rawLogs && isMounted) {
+          const mappedLogs: HistoryItem[] = rawLogs.map((l: any) => ({
+            id: l.id || `log_${Math.random()}`,
+            title: l.title || 'Hoạt động thiết bị',
+            message: l.description || 'Lệnh điều khiển được gửi',
+            timestamp: l.timestamp ? new Date(l.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : 'Vừa xong',
+            type: 'activity',
+            isRead: true,
+            actor: l.actor,
+          }));
+          setLogs(mappedLogs);
+        }
+      } catch {
+        // Fallback
+      } finally {
+        if (isMounted) setIsLoadingLogs(false);
+      }
+    };
+
+    fetchAuditLogs();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeHomeId]);
+
+  // Merge alerts and logs
+  const allItems = useMemo<HistoryItem[]>(() => {
+    const mappedAlerts: HistoryItem[] = alerts.map((a) => ({
+      id: a.id,
+      title: a.title,
+      message: a.message,
+      timestamp: a.timestamp,
+      type: a.type,
+      isRead: a.isRead,
+    }));
+
+    return [...mappedAlerts, ...logs].sort((a, b) => b.id.localeCompare(a.id));
+  }, [alerts, logs]);
+
+  const filteredItems = useMemo(() => {
+    if (filterType === 'all') return allItems;
+    if (filterType === 'alert') return allItems.filter((i) => i.type === 'warning' || i.type === 'info' || i.type === 'device');
+    if (filterType === 'activity') return allItems.filter((i) => i.type === 'activity');
+    if (filterType === 'security') return allItems.filter((i) => i.type === 'security');
+    return allItems;
+  }, [allItems, filterType]);
 
   const unreadCount = useMemo(() => {
     return alerts.filter((a) => !a.isRead).length;
@@ -46,6 +109,8 @@ export const HistoryAlertScreen: React.FC = () => {
     switch (type) {
       case 'security':
         return <MaterialIcons name="security" size={ICON_SIZE} color="#EF4444" />;
+      case 'activity':
+        return <Feather name="activity" size={ICON_SIZE} color="#059669" />;
       case 'device':
         return <Ionicons name="hardware-chip" size={ICON_SIZE} color="#2563EB" />;
       default:
@@ -58,15 +123,11 @@ export const HistoryAlertScreen: React.FC = () => {
   }, []);
 
   const handleMarkAsRead = useCallback(
-    (alertId: string) => {
-      markAlertAsRead(alertId);
+    (id: string) => {
+      markAlertAsRead(id);
     },
     [markAlertAsRead]
   );
-
-  const handleMarkAllAsRead = useCallback(() => {
-    markAllAlertsAsRead();
-  }, [markAllAlertsAsRead]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -115,7 +176,7 @@ export const HistoryAlertScreen: React.FC = () => {
         {unreadCount > 0 && (
           <TouchableOpacity
             style={[styles.markAllBtn, NeuStyles.raisedSoft]}
-            onPress={handleMarkAllAsRead}
+            onPress={markAllAlertsAsRead}
             accessibilityRole="button"
             accessibilityLabel="Đánh dấu tất cả thông báo là đã đọc"
             activeOpacity={0.85}
@@ -131,24 +192,28 @@ export const HistoryAlertScreen: React.FC = () => {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {filteredAlerts.length === 0 ? (
+        {isLoadingLogs && allItems.length === 0 ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color="#2563EB" />
+          </View>
+        ) : filteredItems.length === 0 ? (
           <View style={[styles.emptyState, NeuStyles.raised]}>
             <Ionicons name="notifications-off-outline" size={48} color="#94A3B8" />
             <Text style={[Typography.titleMedium, styles.emptyTitle]}>
-              Không có cảnh báo nào
+              Không có sự kiện nào
             </Text>
             <Text style={styles.emptyDesc}>
               Hệ thống an ninh và các thiết bị trong ngôi nhà đang hoạt động hoàn toàn bình thường.
             </Text>
           </View>
         ) : (
-          filteredAlerts.map((item) => (
+          filteredItems.map((item) => (
             <TouchableOpacity
               key={item.id}
               style={[
                 styles.alertCard,
                 NeuStyles.raised,
-                !item.isRead && styles.alertCardUnread,
+                item.isRead === false && styles.alertCardUnread,
               ]}
               onPress={() => handleMarkAsRead(item.id)}
               accessibilityRole="button"
@@ -165,9 +230,14 @@ export const HistoryAlertScreen: React.FC = () => {
                     <Text style={[Typography.titleMedium, styles.alertTitle]}>
                       {item.title}
                     </Text>
-                    {!item.isRead && <View style={styles.unreadDot} />}
+                    {item.isRead === false && <View style={styles.unreadDot} />}
                   </View>
-                  <Text style={styles.timestamp}>{item.timestamp}</Text>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.timestamp}>{item.timestamp}</Text>
+                    {item.actor && (
+                      <Text style={styles.actorTag}>• Bởi {item.actor}</Text>
+                    )}
+                  </View>
                 </View>
               </View>
 
@@ -191,47 +261,47 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.marginMobile,
     marginBottom: 14,
-    gap: 10,
+    gap: 8,
   },
   filterContainer: {
     flex: 1,
     flexDirection: 'row',
-    padding: 4,
+    padding: 3,
     borderRadius: BorderRadius.xl,
   },
   filterBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 7,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: BorderRadius.lg,
+  },
+  filterBtnActive: {
+    backgroundColor: '#2563EB',
   },
   filterBtnInactive: {
     backgroundColor: 'transparent',
   },
-  filterBtnActive: {
-    backgroundColor: '#E8ECF2',
-  },
   filterText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
   },
   filterTextActive: {
-    color: '#2563EB',
-    fontWeight: '800',
+    color: '#FFFFFF',
   },
   markAllBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: BorderRadius.lg,
+    gap: 4,
   },
   markAllText: {
     fontSize: 11,
+    fontWeight: '700',
     color: '#2563EB',
-    fontWeight: '800',
   },
   container: {
     flex: 1,
@@ -240,46 +310,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.marginMobile,
     paddingBottom: 40,
   },
-  emptyState: {
+  loadingBox: {
+    paddingVertical: 40,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 36,
-    marginVertical: 20,
-    borderRadius: BorderRadius.xl,
+  },
+  emptyState: {
+    borderRadius: BorderRadius.xxl,
+    padding: 32,
+    alignItems: 'center',
+    marginTop: 20,
   },
   emptyTitle: {
     color: '#1E293B',
-    fontWeight: '800',
     marginTop: 12,
+    marginBottom: 6,
   },
   emptyDesc: {
-    fontSize: 13,
     color: '#64748B',
+    fontSize: 13,
     textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   alertCard: {
-    padding: 16,
     borderRadius: BorderRadius.xl,
+    padding: 16,
     marginBottom: 12,
   },
   alertCardUnread: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(59, 130, 246, 0.4)',
+    borderLeftWidth: 3.5,
+    borderLeftColor: '#2563EB',
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     marginBottom: 8,
   },
   iconWrap: {
-    width: ICON_WRAP_SIZE,
-    height: ICON_WRAP_SIZE,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   infoCol: {
     flex: 1,
@@ -290,31 +362,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   alertTitle: {
-    color: '#1E293B',
+    fontSize: 14,
     fontWeight: '800',
-    flex: 1,
-    paddingRight: 6,
+    color: '#1E293B',
   },
   unreadDot: {
     width: UNREAD_DOT_SIZE,
     height: UNREAD_DOT_SIZE,
     borderRadius: UNREAD_DOT_SIZE / 2,
-    backgroundColor: '#2563EB',
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 3,
+    backgroundColor: '#EF4444',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
   },
   timestamp: {
     fontSize: 11,
     color: '#64748B',
-    marginTop: 2,
-    fontWeight: '500',
+  },
+  actorTag: {
+    fontSize: 11,
+    color: '#059669',
+    fontWeight: '600',
   },
   alertMsg: {
     fontSize: 13,
-    color: '#334155',
-    lineHeight: 18,
-    fontWeight: '500',
+    color: '#475569',
+    lineHeight: 19,
   },
 });

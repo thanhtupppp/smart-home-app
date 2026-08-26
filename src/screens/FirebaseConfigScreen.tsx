@@ -219,7 +219,7 @@ export const FirebaseConfigScreen: React.FC = () => {
           <View style={styles.infoTitleRow}>
             <MaterialIcons name="integration-instructions" size={18} color="#2563EB" />
             <Text style={[Typography.titleMedium, styles.infoTitle]}>
-              Cấu trúc dữ liệu homes/{homeId}
+              {'Cấu trúc dữ liệu homes/{homeId}'}
             </Text>
           </View>
           <Text style={styles.infoCode}>

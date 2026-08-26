@@ -14,6 +14,31 @@ interface HeaderProps {
   rightAction?: React.ReactNode;
 }
 
+/** Cấu hình badge theo trạng thái kết nối thật */
+const CONNECTION_BADGE = {
+  connected: {
+    led: '#10B981',
+    ledShadow: '#10B981',
+    icon: 'cloud-done' as const,
+    iconColor: '#059669',
+    text: 'Online',
+  },
+  reconnecting: {
+    led: '#F59E0B',
+    ledShadow: '#F59E0B',
+    icon: 'cloud-upload-outline' as const,
+    iconColor: '#D97706',
+    text: 'Đồng bộ…',
+  },
+  offline: {
+    led: '#EF4444',
+    ledShadow: '#EF4444',
+    icon: 'cloud-offline-outline' as const,
+    iconColor: '#DC2626',
+    text: 'Offline',
+  },
+} as const;
+
 export const Header: React.FC<HeaderProps> = ({
   title,
   subtitle,
@@ -23,7 +48,17 @@ export const Header: React.FC<HeaderProps> = ({
   onBackPress,
   rightAction,
 }) => {
-  const { overview, unreadAlertCount, firebaseConfig } = useHome();
+  const { overview, unreadAlertCount, firebaseConfig, connectionStatus } = useHome();
+
+  const badge = firebaseConfig.isDemoMode
+    ? {
+        led: '#94A3B8',
+        ledShadow: 'transparent',
+        icon: 'cloud-offline' as const,
+        iconColor: '#64748B',
+        text: 'Demo',
+      }
+    : CONNECTION_BADGE[connectionStatus];
 
   return (
     <View style={styles.container}>
@@ -50,25 +85,19 @@ export const Header: React.FC<HeaderProps> = ({
       </View>
 
       <View style={styles.rightSection}>
-        {/* Firebase Cloud status indicator */}
+        {/* Trạng thái kết nối thật — không phải badge giả */}
         <View style={[styles.cloudBadge, NeuStyles.cavity]}>
           <View
             style={[
               styles.statusLed,
               {
-                backgroundColor: firebaseConfig.isDemoMode ? '#94A3B8' : '#10B981',
-                shadowColor: firebaseConfig.isDemoMode ? 'transparent' : '#10B981',
+                backgroundColor: badge.led,
+                shadowColor: badge.ledShadow,
               },
             ]}
           />
-          <Ionicons
-            name={firebaseConfig.isDemoMode ? 'cloud-offline' : 'cloud-done'}
-            size={15}
-            color={firebaseConfig.isDemoMode ? '#64748B' : '#059669'}
-          />
-          <Text style={styles.cloudText}>
-            {firebaseConfig.isDemoMode ? 'Demo' : 'ESP32'}
-          </Text>
+          <Ionicons name={badge.icon} size={15} color={badge.iconColor} />
+          <Text style={styles.cloudText}>{badge.text}</Text>
         </View>
 
         {rightAction}

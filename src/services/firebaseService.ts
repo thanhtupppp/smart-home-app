@@ -680,6 +680,112 @@ export class FirebaseService {
     }
   }
 
+  public async removeScene(sceneId: string): Promise<boolean> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return true;
+    try {
+      const response = await this.requestWithAuth(
+        `${this.homePath()}/scenes/${sceneId}`,
+        { method: "DELETE" }
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── Automations ─────────────────────────────────────────────────────────
+
+  public async fetchAutomations(): Promise<Record<string, any> | null> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return null;
+    try {
+      const response = await this.requestWithAuth(
+        `${this.homePath()}/automations`,
+        { method: "GET" }
+      );
+      if (response.ok) return await response.json();
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async saveAutomation(automation: any): Promise<boolean> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return true;
+    try {
+      const response = await this.requestWithAuth(
+        `${this.homePath()}/automations/${automation.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(automation),
+        }
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async removeAutomation(automationId: string): Promise<boolean> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return true;
+    try {
+      const response = await this.requestWithAuth(
+        `${this.homePath()}/automations/${automationId}`,
+        { method: "DELETE" }
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── Audit & Activity Logs ───────────────────────────────────────────────
+
+  public async logEvent(event: {
+    id?: string;
+    type: string;
+    title: string;
+    description: string;
+    actor?: string;
+    timestamp?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return;
+    try {
+      const id = event.id || `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const logEntry = {
+        ...event,
+        id,
+        timestamp: event.timestamp || new Date().toISOString(),
+      };
+      await this.requestWithAuth(`${this.homePath()}/logs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(logEntry),
+      });
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  public async fetchLogs(limit = 50): Promise<any[] | null> {
+    if (this.config.isDemoMode || !this.config.databaseURL) return null;
+    try {
+      const response = await this.requestWithAuth(
+        `${this.homePath()}/logs?orderBy="$key"&limitToLast=${limit}`,
+        { method: "GET" }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        if (!data) return [];
+        return Object.values(data).reverse();
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   // ─── Overview ────────────────────────────────────────────────────────────
 
   public async updateOverviewField(
@@ -724,7 +830,7 @@ export class FirebaseService {
       this.consecutiveFailures = 0;
       this.setConnectionStatus("connected");
 
-      const devicesList = Object.values(result.data || {});
+      const devicesList = this.normalizeDevices(result.data);
       devicesList.sort((a, b) => a.id.localeCompare(b.id));
       const snapshot = JSON.stringify(devicesList);
       if (snapshot === this.lastDeviceSnapshot) return;
@@ -742,6 +848,70 @@ export class FirebaseService {
       this.lastAlertSnapshot = snapshot;
       this.notifyAlertListeners(alerts);
     }, 5000);
+  }
+
+  /**
+   * Chuẩn hóa thiết bị: gộp `reported` state vào flat fields và
+   * tính toán `isOnline` thực dựa trên heartbeat `lastSeenAt` (<75s).
+   */
+  public normalizeDevices(
+    data: Record<string, any> | null
+  ): Device[] {
+    if (!data) return [];
+    const now = Date.now();
+    const HEARTBEAT_TIMEOUT_MS = 75_000; // ESP32 heartbeat mỗi 30s -> ngưỡng 75s
+
+    return Object.entries(data).map(([key, raw]) => {
+      const dev = raw || {};
+      const reported = dev.reported || {};
+      const desired = dev.desired || {};
+
+      // Xác định isOnline từ lastSeenAt
+      let isLive = Boolean(dev.isOnline);
+      if (reported.lastSeenAt) {
+        const lastSeenMs =
+          typeof reported.lastSeenAt === "number"
+            ? reported.lastSeenAt
+            : new Date(reported.lastSeenAt).getTime();
+        isLive = !isNaN(lastSeenMs) && now - lastSeenMs < HEARTBEAT_TIMEOUT_MS;
+      } else if (dev.lastUpdated) {
+        const updatedMs = new Date(dev.lastUpdated).getTime();
+        if (!isNaN(updatedMs) && now - updatedMs < HEARTBEAT_TIMEOUT_MS) {
+          isLive = true;
+        }
+      }
+
+      if (this.config.isDemoMode) {
+        isLive = true;
+      }
+
+      return {
+        id: dev.id || key,
+        name: dev.name || "Thiết bị",
+        type: dev.type || "switch",
+        roomId: dev.roomId || "room_living",
+        roomName: dev.roomName || "Phòng khách",
+        isFavorite: Boolean(dev.isFavorite),
+        lastUpdated: dev.lastUpdated || new Date().toISOString(),
+
+        // Ưu tiên trạng thái thực tế từ reported của phần cứng
+        isOnline: isLive,
+        isOn: reported.isOn !== undefined ? Boolean(reported.isOn) : Boolean(dev.isOn),
+        brightness: reported.brightness !== undefined ? reported.brightness : dev.brightness,
+        color: reported.color || dev.color,
+        rgbMode: reported.rgbMode || dev.rgbMode,
+        temperature: reported.temperature !== undefined ? reported.temperature : dev.temperature,
+        currentTemperature: reported.currentTemperature !== undefined ? reported.currentTemperature : dev.currentTemperature,
+        humidity: reported.humidity !== undefined ? reported.humidity : dev.humidity,
+        airQuality: reported.airQuality || dev.airQuality,
+        acMode: reported.acMode || dev.acMode,
+        fanSpeed: reported.fanSpeed || dev.fanSpeed,
+        powerUsageWatts: reported.powerUsageWatts !== undefined ? reported.powerUsageWatts : dev.powerUsageWatts,
+
+        desired,
+        reported,
+      };
+    });
   }
 
   private normalizeAlerts(

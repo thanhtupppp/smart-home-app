@@ -177,7 +177,7 @@ export const CameraDetailScreen: React.FC = () => {
               <View style={styles.feedTopOverlay}>
                 <View style={styles.liveBadge}>
                   <View style={styles.liveRedDot} />
-                  <Text style={styles.liveText}>TRỰC TIẾP</Text>
+                  <Text style={styles.liveText}>TRỰC TIẾP (BETA)</Text>
                 </View>
 
                 {isRecording && (
@@ -190,7 +190,7 @@ export const CameraDetailScreen: React.FC = () => {
                 )}
 
                 <View style={styles.resolutionBadge}>
-                  <Text style={styles.resolutionText}>1080P • 30FPS</Text>
+                  <Text style={styles.resolutionText}>MJPEG / RTSP • 30FPS</Text>
                 </View>
               </View>
 
