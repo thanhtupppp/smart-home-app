@@ -3,6 +3,11 @@ const React = require('react');
 const View = (props) => React.createElement('View', props, props.children);
 const Text = (props) => React.createElement('Text', props, props.children);
 const TouchableOpacity = (props) => React.createElement('TouchableOpacity', props, props.children);
+const Pressable = (props) => {
+  const children = typeof props.children === 'function' ? props.children({ pressed: false }) : props.children;
+  const style = typeof props.style === 'function' ? props.style({ pressed: false }) : props.style;
+  return React.createElement('Pressable', { ...props, style }, children);
+};
 const ScrollView = (props) => React.createElement('ScrollView', props, props.children);
 const TextInput = (props) => React.createElement('TextInput', props, props.children);
 const Switch = (props) => React.createElement('Switch', props, props.children);
@@ -47,6 +52,7 @@ module.exports = {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   TextInput,
   Switch,
