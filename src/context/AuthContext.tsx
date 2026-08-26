@@ -87,17 +87,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
-    // Xóa home cache & local storage trước khi signOut để không leak data giữa sessions
+    // Xóa cache theo user & home scope trước khi signOut để không leak data giữa sessions
+    const currentUid = user?.uid || 'anon';
     const [{ firebaseService }, { safeStorage }] = await Promise.all([
       import('../services/firebaseService'),
       import('../services/storageService'),
     ]);
     await Promise.all([
       firebaseService.clearActiveHome(),
-      safeStorage.clear(),
+      safeStorage.clearUserScopedData(currentUid),
       authService.signOut(),
     ]);
-  }, []);
+  }, [user?.uid]);
 
   const resetPassword = useCallback(async (email: string, customApiKey?: string): Promise<boolean> => {
     setIsLoading(true);

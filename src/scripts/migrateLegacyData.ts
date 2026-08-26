@@ -63,17 +63,12 @@ async function patchNode(path: string, data: any, idToken: string): Promise<void
 }
 
 async function getIdToken(): Promise<string> {
-  // Để migrate, dùng Database secret tạm thời cho request này
-  // (Đây là trường hợp ngoại lệ hợp lệ vì đây là script migration chạy một lần)
-  const secret = process.env.FIREBASE_DATABASE_SECRET || '';
-  if (secret) return secret;
-
-  // Hoặc đăng nhập với email/password
+  // Đăng nhập với email/password chủ nhà (Admin / Owner) để lấy ID token
   const email = process.env.MIGRATE_EMAIL || '';
   const pass = process.env.MIGRATE_PASSWORD || '';
   if (!email || !pass) {
     throw new Error(
-      'Thiếu xác thực. Set FIREBASE_DATABASE_SECRET hoặc MIGRATE_EMAIL + MIGRATE_PASSWORD'
+      'Thiếu xác thực. Set MIGRATE_EMAIL + MIGRATE_PASSWORD trong environment'
     );
   }
 

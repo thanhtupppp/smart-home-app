@@ -14,6 +14,10 @@ export interface DeviceDesired {
   fanSpeed?: 'auto' | 'low' | 'medium' | 'high';
   /** ID của command đã tạo state này */
   commandId?: string;
+  /** Monotonic sequence counter để chống out-of-order execution */
+  sequence?: number;
+  /** Khóa chống lặp lệnh khi retry */
+  idempotencyKey?: string;
 }
 
 export interface DeviceReported {
@@ -32,6 +36,8 @@ export interface DeviceReported {
   lastSeenAt?: number;
   /** ID của command cuối thiết bị đã thực thi xong */
   lastAppliedCommandId?: string;
+  /** Sequence cuối thiết bị đã thực thi xong */
+  lastAppliedSequence?: number;
   powerUsageWatts?: number;
   firmwareVersion?: string;
 }
@@ -96,6 +102,7 @@ export type CommandStatus = 'pending' | 'applied' | 'failed' | 'timeout';
 /** Ghi vào homes/{homeId}/commands/{commandId} */
 export interface CommandRecord {
   id: string;
+  homeId: string;
   deviceId: string;
   type: DeviceCommand['type'];
   payload: Record<string, unknown>;
@@ -103,7 +110,10 @@ export interface CommandRecord {
   requestedAt: number;   // Unix ms
   status: CommandStatus;
   expiresAt: number;     // requestedAt + 15_000
+  sequence?: number;     // Monotonic sequence chống out-of-order
+  idempotencyKey?: string;
   appliedAt?: number;
+  error?: string;
 }
 
 // ─── Scene ─────────────────────────────────────────────────────────────────

@@ -12,15 +12,10 @@ import {
 } from '../types';
 import { initialDevices, initialRooms, initialScenes, initialAutomations, initialAlerts, initialHomeOverview } from '../services/mockData';
 import { firebaseService } from '../services/firebaseService';
-import { safeStorage } from '../services/storageService';
+import { safeStorage, getScopedCacheKey } from '../services/storageService';
 import { authService } from '../services/authService';
 import { commandQueueService } from '../services/commandQueueService';
 import { notificationService } from '../services/notificationService';
-
-const ROOMS_STORAGE_KEY = 'tu_smarthome_rooms_cache';
-const DEVICES_STORAGE_KEY = 'tu_smarthome_devices_cache';
-const SCENES_STORAGE_KEY = 'tu_smarthome_scenes_cache';
-const AUTOMATIONS_STORAGE_KEY = 'tu_smarthome_automations_cache';
 
 /** Timeout (ms) trước khi rollback optimistic state nếu thiết bị không ack */
 const COMMAND_TIMEOUT_MS = 15_000;
@@ -137,20 +132,23 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: user.email,
             role: user.role,
             lastLoginAt: new Date().toISOString(),
-          }).catch(() => {});
+          }, activeHomeId).catch(() => {});
         }
       });
     }
-  }, []);
+  }, [activeHomeId]);
 
-  // Load cached devices and listen to remote Firebase changes
+  // Load cached devices and listen to remote Firebase changes (scoped theo activeHomeId)
   // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
+    const user = authService.getCurrentUser();
+    const devStorageKey = getScopedCacheKey('devices', user?.uid, activeHomeId);
+
     const initDevices = async () => {
       try {
-        const cached = await safeStorage.getItem(DEVICES_STORAGE_KEY);
+        const cached = await safeStorage.getItem(devStorageKey);
         if (!isMounted) return;
         if (cached) {
           const parsed: Device[] = JSON.parse(cached);
@@ -163,13 +161,13 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const result = await firebaseService.fetchDevicesDetailed();
+        const result = await firebaseService.fetchDevicesDetailed(activeHomeId);
         if (!isMounted) return;
         if (result.ok) {
           const list: Device[] = firebaseService.normalizeDevices(result.data);
           if (!isMounted) return;
           setDevices(list);
-          await safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(list));
+          await safeStorage.setItem(devStorageKey, JSON.stringify(list));
         }
       } catch {
         // Ignore
@@ -181,7 +179,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = firebaseService.subscribe((remoteDevices) => {
       if (isMounted) {
         setDevices(remoteDevices);
-        safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(remoteDevices));
+        safeStorage.setItem(devStorageKey, JSON.stringify(remoteDevices));
 
         // Kiểm tra ack: clear timeouts nếu reported.lastAppliedCommandId khớp
         for (const dev of remoteDevices) {
@@ -498,85 +496,102 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ─── Scene CRUD ──────────────────────────────────────────────────────────
 
   const addScene = useCallback(async (newScene: Scene) => {
+    const user = authService.getCurrentUser();
+    const sceneStorageKey = getScopedCacheKey('scenes', user?.uid, activeHomeId);
     const updated = [...scenes.filter((s) => s.id !== newScene.id), newScene];
     setScenes(updated);
-    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
-    await firebaseService.saveScene(newScene);
-  }, [scenes]);
+    await safeStorage.setItem(sceneStorageKey, JSON.stringify(updated));
+    await firebaseService.saveScene(newScene, activeHomeId);
+  }, [scenes, activeHomeId]);
 
   const updateScene = useCallback(async (sceneId: string, updates: Partial<Scene>) => {
+    const user = authService.getCurrentUser();
+    const sceneStorageKey = getScopedCacheKey('scenes', user?.uid, activeHomeId);
     const updated = scenes.map((s) => (s.id === sceneId ? { ...s, ...updates } : s));
     setScenes(updated);
-    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
+    await safeStorage.setItem(sceneStorageKey, JSON.stringify(updated));
     const target = updated.find((s) => s.id === sceneId);
-    if (target) await firebaseService.saveScene(target);
-  }, [scenes]);
+    if (target) await firebaseService.saveScene(target, activeHomeId);
+  }, [scenes, activeHomeId]);
 
   const removeScene = useCallback(async (sceneId: string) => {
+    const user = authService.getCurrentUser();
+    const sceneStorageKey = getScopedCacheKey('scenes', user?.uid, activeHomeId);
     const updated = scenes.filter((s) => s.id !== sceneId);
     setScenes(updated);
-    await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(updated));
-    await firebaseService.removeScene(sceneId);
-  }, [scenes]);
+    await safeStorage.setItem(sceneStorageKey, JSON.stringify(updated));
+    await firebaseService.removeScene(sceneId, activeHomeId);
+  }, [scenes, activeHomeId]);
 
   // ─── Automation CRUD ─────────────────────────────────────────────────────
 
   const toggleAutomation = useCallback(async (id: string) => {
     const target = automations.find((a) => a.id === id);
     if (!target) return;
+    const user = authService.getCurrentUser();
+    const autoStorageKey = getScopedCacheKey('automations', user?.uid, activeHomeId);
     const updatedItem = { ...target, isEnabled: !target.isEnabled };
     const updatedList = automations.map((a) => (a.id === id ? updatedItem : a));
     setAutomations(updatedList);
-    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updatedList));
-    await firebaseService.saveAutomation(updatedItem);
-  }, [automations]);
+    await safeStorage.setItem(autoStorageKey, JSON.stringify(updatedList));
+    await firebaseService.saveAutomation(updatedItem, activeHomeId);
+  }, [automations, activeHomeId]);
 
   const addAutomation = useCallback(async (newAutomation: Automation) => {
+    const user = authService.getCurrentUser();
+    const autoStorageKey = getScopedCacheKey('automations', user?.uid, activeHomeId);
     const updated = [...automations.filter((a) => a.id !== newAutomation.id), newAutomation];
     setAutomations(updated);
-    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
-    await firebaseService.saveAutomation(newAutomation);
-  }, [automations]);
+    await safeStorage.setItem(autoStorageKey, JSON.stringify(updated));
+    await firebaseService.saveAutomation(newAutomation, activeHomeId);
+  }, [automations, activeHomeId]);
 
   const updateAutomation = useCallback(async (automationId: string, updates: Partial<Automation>) => {
+    const user = authService.getCurrentUser();
+    const autoStorageKey = getScopedCacheKey('automations', user?.uid, activeHomeId);
     const updated = automations.map((a) => (a.id === automationId ? { ...a, ...updates } : a));
     setAutomations(updated);
-    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
+    await safeStorage.setItem(autoStorageKey, JSON.stringify(updated));
     const target = updated.find((a) => a.id === automationId);
-    if (target) await firebaseService.saveAutomation(target);
-  }, [automations]);
+    if (target) await firebaseService.saveAutomation(target, activeHomeId);
+  }, [automations, activeHomeId]);
 
   const removeAutomation = useCallback(async (automationId: string) => {
+    const user = authService.getCurrentUser();
+    const autoStorageKey = getScopedCacheKey('automations', user?.uid, activeHomeId);
     const updated = automations.filter((a) => a.id !== automationId);
     setAutomations(updated);
-    await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(updated));
-    await firebaseService.removeAutomation(automationId);
-  }, [automations]);
+    await safeStorage.setItem(autoStorageKey, JSON.stringify(updated));
+    await firebaseService.removeAutomation(automationId, activeHomeId);
+  }, [automations, activeHomeId]);
 
   // Sync Scenes & Automations from Firebase
   // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
+    const user = authService.getCurrentUser();
+    const sceneStorageKey = getScopedCacheKey('scenes', user?.uid, activeHomeId);
+    const autoStorageKey = getScopedCacheKey('automations', user?.uid, activeHomeId);
 
     const initScenesAndAutomations = async () => {
       try {
-        const remoteScenes = await firebaseService.fetchScenes();
+        const remoteScenes = await firebaseService.fetchScenes(activeHomeId);
         if (!isMounted) return;
         if (remoteScenes && Object.keys(remoteScenes).length > 0 && isMounted) {
           const list: Scene[] = Object.values(remoteScenes);
           if (!isMounted) return;
           setScenes(list);
-          await safeStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(list));
+          await safeStorage.setItem(sceneStorageKey, JSON.stringify(list));
         }
 
-        const remoteAutomations = await firebaseService.fetchAutomations();
+        const remoteAutomations = await firebaseService.fetchAutomations(activeHomeId);
         if (!isMounted) return;
         if (remoteAutomations && Object.keys(remoteAutomations).length > 0 && isMounted) {
           const list: Automation[] = Object.values(remoteAutomations);
           if (!isMounted) return;
           setAutomations(list);
-          await safeStorage.setItem(AUTOMATIONS_STORAGE_KEY, JSON.stringify(list));
+          await safeStorage.setItem(autoStorageKey, JSON.stringify(list));
         }
       } catch {
         // Fallback
@@ -593,10 +608,13 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!isConfigReady) return;
     let isMounted = true;
+    const user = authService.getCurrentUser();
+    const roomStorageKey = getScopedCacheKey('rooms', user?.uid, activeHomeId);
+
     const initRooms = async () => {
       let localRooms: Room[] = initialRooms;
       try {
-        const cached = await safeStorage.getItem(ROOMS_STORAGE_KEY);
+        const cached = await safeStorage.getItem(roomStorageKey);
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -609,16 +627,16 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const remote = await firebaseService.fetchRooms();
+        const remote = await firebaseService.fetchRooms(activeHomeId);
         if (remote && Object.keys(remote).length > 0) {
           const list: Room[] = Object.values(remote);
           if (isMounted) {
             setRooms(list);
-            await safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(list));
+            await safeStorage.setItem(roomStorageKey, JSON.stringify(list));
           }
         } else {
-          await Promise.all(localRooms.map((r) => firebaseService.saveRoom(r)));
-          await safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(localRooms));
+          await Promise.all(localRooms.map((r) => firebaseService.saveRoom(r, activeHomeId)));
+          await safeStorage.setItem(roomStorageKey, JSON.stringify(localRooms));
         }
       } catch {
         // Ignore
@@ -638,7 +656,7 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initAlerts = async () => {
       if (firebaseService.getConfig().isDemoMode) return;
-      const list = await firebaseService.fetchAlerts();
+      const list = await firebaseService.fetchAlerts(activeHomeId);
       if (!isMounted || list === null) return;
       setAlerts(list);
       list.forEach((a) => notifiedAlertIdsRef.current.add(a.id));
@@ -671,52 +689,64 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isConfigReady, activeHomeId]);
 
   const addDevice = useCallback((newDevice: Device) => {
+    const user = authService.getCurrentUser();
+    const devStorageKey = getScopedCacheKey('devices', user?.uid, activeHomeId);
     const updated = [...devices.filter((d) => d.id !== newDevice.id), newDevice];
     setDevices(updated);
-    safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(updated));
-    firebaseService.saveDevice(newDevice);
+    safeStorage.setItem(devStorageKey, JSON.stringify(updated));
+    firebaseService.saveDevice(newDevice, activeHomeId);
     firebaseService.logEvent({
       type: 'device_added',
       title: 'Thêm thiết bị mới',
       description: `Thiết bị ${newDevice.name} đã được thêm vào ${newDevice.roomName}`,
       actor: authService.getCurrentUser()?.displayName || 'User',
-    });
-  }, [devices]);
+    }, activeHomeId);
+  }, [devices, activeHomeId]);
 
   const removeDevice = useCallback(async (deviceId: string) => {
+    const user = authService.getCurrentUser();
+    const devStorageKey = getScopedCacheKey('devices', user?.uid, activeHomeId);
     const updated = devices.filter((d) => d.id !== deviceId);
     setDevices(updated);
-    await safeStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(updated));
-    return await firebaseService.removeDevice(deviceId);
-  }, [devices]);
+    await safeStorage.setItem(devStorageKey, JSON.stringify(updated));
+    return await firebaseService.removeDevice(deviceId, activeHomeId);
+  }, [devices, activeHomeId]);
 
   const clearAllDevices = useCallback(async () => {
+    const user = authService.getCurrentUser();
+    const devStorageKey = getScopedCacheKey('devices', user?.uid, activeHomeId);
     setDevices([]);
-    await safeStorage.removeItem(DEVICES_STORAGE_KEY);
-    return await firebaseService.clearAllDevices();
-  }, []);
+    await safeStorage.removeItem(devStorageKey);
+    return await firebaseService.clearAllDevices(activeHomeId);
+  }, [activeHomeId]);
 
   const addRoom = useCallback((newRoom: Room) => {
+    const user = authService.getCurrentUser();
+    const roomStorageKey = getScopedCacheKey('rooms', user?.uid, activeHomeId);
     const updated = [...rooms, newRoom];
     setRooms(updated);
-    safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(updated));
-    firebaseService.saveRoom(newRoom);
-  }, [rooms]);
+    safeStorage.setItem(roomStorageKey, JSON.stringify(updated));
+    firebaseService.saveRoom(newRoom, activeHomeId);
+  }, [rooms, activeHomeId]);
 
   const updateRoom = useCallback((roomId: string, updates: Partial<Room>) => {
+    const user = authService.getCurrentUser();
+    const roomStorageKey = getScopedCacheKey('rooms', user?.uid, activeHomeId);
     const updated = rooms.map((r) => (r.id === roomId ? { ...r, ...updates } : r));
     setRooms(updated);
-    safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(updated));
+    safeStorage.setItem(roomStorageKey, JSON.stringify(updated));
     const target = updated.find((r) => r.id === roomId);
-    if (target) firebaseService.saveRoom(target);
-  }, [rooms]);
+    if (target) firebaseService.saveRoom(target, activeHomeId);
+  }, [rooms, activeHomeId]);
 
   const removeRoom = useCallback((roomId: string) => {
+    const user = authService.getCurrentUser();
+    const roomStorageKey = getScopedCacheKey('rooms', user?.uid, activeHomeId);
     const updated = rooms.filter((r) => r.id !== roomId);
     setRooms(updated);
-    safeStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(updated));
-    firebaseService.removeRoom(roomId);
-  }, [rooms]);
+    safeStorage.setItem(roomStorageKey, JSON.stringify(updated));
+    firebaseService.removeRoom(roomId, activeHomeId);
+  }, [rooms, activeHomeId]);
 
   const updateFirebaseConfig = useCallback((config: FirebaseConfig) => {
     setFirebaseConfig(config);
@@ -726,34 +756,61 @@ export const HomeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateHomeName = useCallback(async (name: string) => {
     const trimmed = name.trim() || 'Nhà của tôi';
     setOverview((prev) => ({ ...prev, homeName: trimmed }));
-    await firebaseService.updateOverviewField('homeName', trimmed);
-  }, []);
+    await firebaseService.updateOverviewField('homeName', trimmed, activeHomeId);
+  }, [activeHomeId]);
 
   const markAlertAsRead = useCallback((id: string) => {
     setAlerts((prev) =>
       prev.map((a) => (a.id === id ? { ...a, isRead: true } : a))
     );
-    firebaseService.markAlertRead(id);
-  }, []);
+    firebaseService.markAlertRead(id, activeHomeId);
+  }, [activeHomeId]);
 
   const markAllAlertsAsRead = useCallback(() => {
     for (const a of alerts) {
       if (!a.isRead) {
-        firebaseService.markAlertRead(a.id);
+        firebaseService.markAlertRead(a.id, activeHomeId);
       }
     }
     setAlerts((prev) => prev.map((a) => (a.isRead ? a : { ...a, isRead: true })));
-  }, [alerts]);
+  }, [alerts, activeHomeId]);
 
-  /** Chuyển sang nhà khác — reset cache và restart Firebase sync */
+  /** Chuyển sang nhà khác — hủy timeouts, reset cache và restart Firebase sync */
   const setActiveHomeId = useCallback(async (homeId: string) => {
+    if (homeId === activeHomeId) return;
+
+    // 1. Hủy các command timeout pending của nhà cũ
+    Object.values(commandTimeoutsRef.current).forEach(clearTimeout);
+    commandTimeoutsRef.current = {};
+    setCommandPending({});
+
+    // 2. Chuyển active home trong context & firebaseService
     setActiveHomeIdState(homeId);
     await firebaseService.setActiveHome(homeId);
-    await safeStorage.removeItem(DEVICES_STORAGE_KEY);
-    await safeStorage.removeItem(ROOMS_STORAGE_KEY);
-    setDevices([]);
-    setRooms(initialRooms);
-  }, []);
+
+    // 3. Nạp cache scoped theo (user, newHomeId)
+    const user = authService.getCurrentUser();
+    const devKey = getScopedCacheKey('devices', user?.uid, homeId);
+    const roomKey = getScopedCacheKey('rooms', user?.uid, homeId);
+    const sceneKey = getScopedCacheKey('scenes', user?.uid, homeId);
+    const autoKey = getScopedCacheKey('automations', user?.uid, homeId);
+
+    try {
+      const [cachedDevs, cachedRooms, cachedScenes, cachedAutos] = await Promise.all([
+        safeStorage.getItem(devKey),
+        safeStorage.getItem(roomKey),
+        safeStorage.getItem(sceneKey),
+        safeStorage.getItem(autoKey),
+      ]);
+      setDevices(cachedDevs ? JSON.parse(cachedDevs) : []);
+      setRooms(cachedRooms ? JSON.parse(cachedRooms) : initialRooms);
+      setScenes(cachedScenes ? JSON.parse(cachedScenes) : initialScenes);
+      setAutomations(cachedAutos ? JSON.parse(cachedAutos) : initialAutomations);
+    } catch {
+      setDevices([]);
+      setRooms(initialRooms);
+    }
+  }, [activeHomeId]);
 
   const flushOfflineQueue = useCallback(async () => {
     await commandQueueService.flush();

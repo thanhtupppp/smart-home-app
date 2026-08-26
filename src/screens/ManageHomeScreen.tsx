@@ -29,6 +29,7 @@ const QR_CODE_SIZE = 170;
 const QR_PADDING = 16;
 const STATS_ROW_GAP = 10;
 const HOMES_STORAGE_KEY = 'tu_smarthome_homes_list';
+const MEMBERS_STORAGE_KEY = 'tu_smarthome_members_cache';
 
 type TabType = 'my_home' | 'qr_share';
 
@@ -127,7 +128,7 @@ const modalReducer = (state: ModalState, action: ModalAction): ModalState => {
 
 export const ManageHomeScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
-  const { overview, rooms, devices, updateHomeName } = useHome();
+  const { overview, rooms, devices, updateHomeName, setActiveHomeId, activeHomeId } = useHome();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('my_home');
   const [membersList, setMembersList] = useState<SimpleMember[]>([]);
@@ -188,24 +189,27 @@ export const ManageHomeScreen: React.FC = () => {
 
     // 2. Read cached members
     try {
-      const cachedMembers = await safeStorage.getItem('tu_smarthome_members_cache');
+      const cachedMembers = await safeStorage.getItem(MEMBERS_STORAGE_KEY);
       if (cachedMembers) {
-        const list = JSON.parse(cachedMembers);
-        if (Array.isArray(list)) {
-          setMembersList(
-            list.map((m: any) => ({
-              id: m.id || m.email,
-              name: m.name || 'Thành viên',
-              avatarInitials: m.avatarInitials || 'TV',
-            }))
-          );
-        }
+        const parsed = JSON.parse(cachedMembers);
+        if (Array.isArray(parsed)) setMembersList(parsed);
       }
     } catch {
       // Ignore
     }
 
     // 3. Sync from Firebase Remote
+    try {
+      const remoteMembers = await firebaseService.fetchMembers();
+      if (remoteMembers && Object.keys(remoteMembers).length > 0) {
+        const list: SimpleMember[] = Object.values(remoteMembers);
+        setMembersList(list);
+        await safeStorage.setItem(MEMBERS_STORAGE_KEY, JSON.stringify(list));
+      }
+    } catch {
+      // Fallback
+    }
+
     try {
       const remoteHomes = await firebaseService.fetchHomes();
       if (remoteHomes && Object.keys(remoteHomes).length > 0) {
@@ -234,6 +238,7 @@ export const ManageHomeScreen: React.FC = () => {
 
       setHomes(updated);
       await safeStorage.setItem(HOMES_STORAGE_KEY, JSON.stringify(updated));
+      await setActiveHomeId(targetHome.id);
       await updateHomeName(targetHome.name);
 
       Alert.alert(
@@ -241,7 +246,7 @@ export const ManageHomeScreen: React.FC = () => {
         `Bạn hiện đang điều khiển ngôi nhà "${targetHome.name}".`
       );
     },
-    [homes, updateHomeName]
+    [homes, setActiveHomeId, updateHomeName]
   );
 
   // Add New Home

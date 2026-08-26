@@ -54,6 +54,9 @@ export class FirebaseService {
   /** homeId hiện hành — tất cả paths đều được scope theo giá trị này */
   private activeHomeId: string = "home_main";
 
+  /** Theo dõi sequence cho từng thiết bị để chống out-of-order execution */
+  private deviceSequences: Record<string, number> = {};
+
   private listeners: ((devices: Device[]) => void)[] = [];
   private alertListeners: ((alerts: AlertNotification[]) => void)[] = [];
   private connectionListeners: ((status: HomeConnectionStatus) => void)[] = [];
@@ -84,9 +87,7 @@ export class FirebaseService {
       if (json) {
         const stored = JSON.parse(json) as Partial<FirebaseConfig>;
         if (stored && typeof stored === "object") {
-          // Đảm bảo không bao giờ có authSecret trong config (migration safety)
           const { ...safeStored } = stored as any;
-          delete safeStored.authSecret;
           this.config = { ...this.config, ...safeStored };
         }
       }
@@ -113,7 +114,6 @@ export class FirebaseService {
 
   public setConfig(newConfig: FirebaseConfig) {
     const { ...safeConfig } = newConfig as any;
-    delete safeConfig.authSecret; // bảo vệ khỏi code cũ gửi authSecret
     this.config = { ...safeConfig };
     this.configLoaded = true;
     this.applyConfigSideEffects();
@@ -144,12 +144,13 @@ export class FirebaseService {
   }
 
   public async setActiveHome(homeId: string): Promise<void> {
+    if (this.activeHomeId === homeId) return;
     this.activeHomeId = homeId;
     await secureStorage.setItem(ACTIVE_HOME_KEY, homeId).catch(() => {});
     // Reset snapshot để force notify ngay khi switch home
     this.lastDeviceSnapshot = "";
     this.lastAlertSnapshot = "";
-    // Restart sync với homeId mới
+    // Restart sync với homeId mới ngay lập tức
     if (!this.config.isDemoMode && this.config.databaseURL) {
       this.initRealtimeSync();
     }
@@ -191,7 +192,6 @@ export class FirebaseService {
 
   /**
    * Lấy token hợp lệ (tự làm mới nếu sắp hết hạn).
-   * KHÔNG fallback về authSecret — chỉ dùng Firebase ID Token.
    */
   public async getAuthParamAsync(): Promise<string> {
     const token = await authService.getValidIdToken();
@@ -200,25 +200,25 @@ export class FirebaseService {
 
   // ─── Path helpers ────────────────────────────────────────────────────────
 
-  /** Đường dẫn gốc của home hiện hành */
-  private homePath(): string {
-    return `/homes/${this.activeHomeId}`;
+  /** Đường dẫn gốc của home */
+  private homePath(homeId?: string): string {
+    return `/homes/${homeId || this.activeHomeId}`;
   }
 
-  private devicePath(deviceId: string): string {
-    return `${this.homePath()}/devices/${deviceId}`;
+  private devicePath(deviceId: string, homeId?: string): string {
+    return `${this.homePath(homeId)}/devices/${deviceId}`;
   }
 
-  private roomPath(roomId: string): string {
-    return `${this.homePath()}/rooms/${roomId}`;
+  private roomPath(roomId: string, homeId?: string): string {
+    return `${this.homePath(homeId)}/rooms/${roomId}`;
   }
 
-  private memberPath(uid: string): string {
-    return `${this.homePath()}/members/${uid}`;
+  private memberPath(uid: string, homeId?: string): string {
+    return `${this.homePath(homeId)}/members/${uid}`;
   }
 
-  private commandPath(commandId: string): string {
-    return `${this.homePath()}/commands/${commandId}`;
+  private commandPath(commandId: string, homeId?: string): string {
+    return `${this.homePath(homeId)}/commands/${commandId}`;
   }
 
   // ─── HTTP helper ─────────────────────────────────────────────────────────
@@ -282,14 +282,14 @@ export class FirebaseService {
   // ─── Devices ─────────────────────────────────────────────────────────────
 
   public async syncDeviceState(
-    device: Partial<Device> & { id: string }
+    device: Partial<Device> & { id: string },
+    homeId?: string
   ): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      // Ghi vào desired (app muốn thiết bị làm gì)
       const { id, ...patch } = device;
       const response = await this.requestWithAuth(
-        `${this.devicePath(id)}/desired`,
+        `${this.devicePath(id, homeId)}/desired`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -304,14 +304,16 @@ export class FirebaseService {
   }
 
   /**
-   * Tạo command record và ghi desired — protocol lệnh/ack chính thức.
+   * Tạo command record và ghi desired — protocol lệnh/ack chính thức với sequence và idempotencyKey.
    * Trả về commandId nếu thành công, null nếu lỗi.
    */
   public async sendCommand(
     deviceId: string,
     command: DeviceCommand,
-    requestedBy: string
+    requestedBy: string,
+    homeId?: string
   ): Promise<string | null> {
+    const targetHome = homeId || this.activeHomeId;
     if (this.config.isDemoMode || !this.config.databaseURL) {
       // Demo mode: giả lập thành công
       return generateCommandId();
@@ -321,8 +323,13 @@ export class FirebaseService {
     const now = Date.now();
     const patch = commandToDesiredPatch(command);
 
+    const sequence = (this.deviceSequences[deviceId] || 0) + 1;
+    this.deviceSequences[deviceId] = sequence;
+    const idempotencyKey = `${deviceId}_${sequence}_${now}`;
+
     const commandRecord: CommandRecord = {
       id: commandId,
+      homeId: targetHome,
       deviceId,
       type: command.type,
       payload: patch,
@@ -330,27 +337,42 @@ export class FirebaseService {
       requestedAt: now,
       status: "pending",
       expiresAt: now + 15_000,
+      sequence,
+      idempotencyKey,
     };
 
     try {
       // 1. Ghi command record
-      const cmdRes = await this.requestWithAuth(this.commandPath(commandId), {
+      const cmdRes = await this.requestWithAuth(this.commandPath(commandId, targetHome), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(commandRecord),
       });
       if (!cmdRes.ok) return null;
 
-      // 2. Ghi desired state kèm commandId
+      // 2. Ghi desired state kèm commandId & sequence
       const desiredRes = await this.requestWithAuth(
-        `${this.devicePath(deviceId)}/desired`,
+        `${this.devicePath(deviceId, targetHome)}/desired`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...patch, commandId }),
+          body: JSON.stringify({
+            ...patch,
+            commandId,
+            sequence,
+            idempotencyKey,
+          }),
         }
       );
       if (!desiredRes.ok) return null;
+
+      // 3. Tự động ghi log audit cho hành động điều khiển
+      this.logEvent({
+        type: "command",
+        title: `Điều khiển thiết bị (${command.type})`,
+        description: `Lệnh ${command.type} được gửi bởi ${requestedBy}`,
+        actor: requestedBy,
+      }, targetHome).catch(() => {});
 
       return commandId;
     } catch {
@@ -361,11 +383,12 @@ export class FirebaseService {
   /** Cập nhật status của command (timeout/applied/failed) */
   public async updateCommandStatus(
     commandId: string,
-    status: "timeout" | "failed"
+    status: "timeout" | "failed",
+    homeId?: string
   ): Promise<void> {
     if (this.config.isDemoMode || !this.config.databaseURL) return;
     try {
-      await this.requestWithAuth(this.commandPath(commandId), {
+      await this.requestWithAuth(this.commandPath(commandId, homeId), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -375,10 +398,10 @@ export class FirebaseService {
     }
   }
 
-  public async saveDevice(device: Device): Promise<boolean> {
+  public async saveDevice(device: Device, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      const response = await this.requestWithAuth(this.devicePath(device.id), {
+      const response = await this.requestWithAuth(this.devicePath(device.id, homeId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(device),
@@ -389,10 +412,10 @@ export class FirebaseService {
     }
   }
 
-  public async removeDevice(deviceId: string): Promise<boolean> {
+  public async removeDevice(deviceId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      const response = await this.requestWithAuth(this.devicePath(deviceId), {
+      const response = await this.requestWithAuth(this.devicePath(deviceId, homeId), {
         method: "DELETE",
       });
       return response.ok;
@@ -401,11 +424,11 @@ export class FirebaseService {
     }
   }
 
-  public async clearAllDevices(): Promise<boolean> {
+  public async clearAllDevices(homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/devices`,
+        `${this.homePath(homeId)}/devices`,
         { method: "DELETE" }
       );
       return response.ok;
@@ -415,12 +438,9 @@ export class FirebaseService {
   }
 
   /**
-   * Lấy danh sách thiết bị kèm trạng thái request.
-   * - ok=false: lỗi mạng/xác thực → KHÔNG xóa dữ liệu hiện có.
-   * - ok=true, data=null: node trống (mọi thiết bị đã bị xóa).
-   * - ok=true, data={...}: dữ liệu thực tế từ Firebase.
+   * Lấy danh sách thiết bị kèm trạng thái request theo homeId cụ thể.
    */
-  public async fetchDevicesDetailed(): Promise<{
+  public async fetchDevicesDetailed(homeId?: string): Promise<{
     ok: boolean;
     data: Record<string, Device> | null;
   }> {
@@ -429,7 +449,7 @@ export class FirebaseService {
     }
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/devices`,
+        `${this.homePath(homeId)}/devices`,
         { method: "GET" }
       );
       if (response.ok) {
@@ -441,18 +461,18 @@ export class FirebaseService {
     }
   }
 
-  public async fetchDevices(): Promise<Record<string, Device> | null> {
-    const result = await this.fetchDevicesDetailed();
+  public async fetchDevices(homeId?: string): Promise<Record<string, Device> | null> {
+    const result = await this.fetchDevicesDetailed(homeId);
     return result.ok ? result.data : null;
   }
 
   // ─── Rooms ───────────────────────────────────────────────────────────────
 
-  public async fetchRooms(): Promise<Record<string, any> | null> {
+  public async fetchRooms(homeId?: string): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/rooms`,
+        `${this.homePath(homeId)}/rooms`,
         { method: "GET" }
       );
       if (response.ok) return await response.json();
@@ -462,10 +482,10 @@ export class FirebaseService {
     }
   }
 
-  public async saveRoom(room: any): Promise<boolean> {
+  public async saveRoom(room: any, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      const response = await this.requestWithAuth(this.roomPath(room.id), {
+      const response = await this.requestWithAuth(this.roomPath(room.id, homeId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(room),
@@ -476,10 +496,10 @@ export class FirebaseService {
     }
   }
 
-  public async removeRoom(roomId: string): Promise<boolean> {
+  public async removeRoom(roomId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      const response = await this.requestWithAuth(this.roomPath(roomId), {
+      const response = await this.requestWithAuth(this.roomPath(roomId, homeId), {
         method: "DELETE",
       });
       return response.ok;
@@ -490,11 +510,11 @@ export class FirebaseService {
 
   // ─── Members ─────────────────────────────────────────────────────────────
 
-  public async fetchMembers(): Promise<Record<string, any> | null> {
+  public async fetchMembers(homeId?: string): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/members`,
+        `${this.homePath(homeId)}/members`,
         { method: "GET" }
       );
       if (response.ok) return await response.json();
@@ -504,20 +524,23 @@ export class FirebaseService {
     }
   }
 
-  public async saveMember(member: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    roomsCount?: number;
-    createdAt?: string;
-    isActivated?: boolean;
-    lastLoginAt?: string;
-  }): Promise<boolean> {
+  public async saveMember(
+    member: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      roomsCount?: number;
+      createdAt?: string;
+      isActivated?: boolean;
+      lastLoginAt?: string;
+    },
+    homeId?: string
+  ): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        this.memberPath(member.id),
+        this.memberPath(member.id, homeId),
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -530,10 +553,10 @@ export class FirebaseService {
     }
   }
 
-  public async removeMember(memberId: string): Promise<boolean> {
+  public async removeMember(memberId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
-      const response = await this.requestWithAuth(this.memberPath(memberId), {
+      const response = await this.requestWithAuth(this.memberPath(memberId, homeId), {
         method: "DELETE",
       });
       return response.ok;
@@ -590,10 +613,10 @@ export class FirebaseService {
 
   // ─── Alerts ──────────────────────────────────────────────────────────────
 
-  public async logAlert(alert: AlertNotification): Promise<void> {
+  public async logAlert(alert: AlertNotification, homeId?: string): Promise<void> {
     if (this.config.isDemoMode || !this.config.databaseURL) return;
     try {
-      await this.requestWithAuth(`${this.homePath()}/alerts/${alert.id}`, {
+      await this.requestWithAuth(`${this.homePath(homeId)}/alerts/${alert.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(alert),
@@ -603,7 +626,7 @@ export class FirebaseService {
     }
   }
 
-  private async fetchAlertsDetailed(): Promise<{
+  private async fetchAlertsDetailed(homeId?: string): Promise<{
     ok: boolean;
     data: Record<string, AlertNotification> | null;
   }> {
@@ -612,7 +635,7 @@ export class FirebaseService {
     }
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/alerts`,
+        `${this.homePath(homeId)}/alerts`,
         { method: "GET" }
       );
       if (response.ok) {
@@ -624,17 +647,17 @@ export class FirebaseService {
     }
   }
 
-  public async fetchAlerts(): Promise<AlertNotification[] | null> {
-    const result = await this.fetchAlertsDetailed();
+  public async fetchAlerts(homeId?: string): Promise<AlertNotification[] | null> {
+    const result = await this.fetchAlertsDetailed(homeId);
     if (!result.ok) return null;
     return this.normalizeAlerts(result.data);
   }
 
-  public async markAlertRead(alertId: string): Promise<boolean> {
+  public async markAlertRead(alertId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/alerts/${alertId}`,
+        `${this.homePath(homeId)}/alerts/${alertId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -649,11 +672,11 @@ export class FirebaseService {
 
   // ─── Scenes ──────────────────────────────────────────────────────────────
 
-  public async fetchScenes(): Promise<Record<string, any> | null> {
+  public async fetchScenes(homeId?: string): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/scenes`,
+        `${this.homePath(homeId)}/scenes`,
         { method: "GET" }
       );
       if (response.ok) return await response.json();
@@ -663,11 +686,11 @@ export class FirebaseService {
     }
   }
 
-  public async saveScene(scene: any): Promise<boolean> {
+  public async saveScene(scene: any, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/scenes/${scene.id}`,
+        `${this.homePath(homeId)}/scenes/${scene.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -680,11 +703,11 @@ export class FirebaseService {
     }
   }
 
-  public async removeScene(sceneId: string): Promise<boolean> {
+  public async removeScene(sceneId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/scenes/${sceneId}`,
+        `${this.homePath(homeId)}/scenes/${sceneId}`,
         { method: "DELETE" }
       );
       return response.ok;
@@ -695,11 +718,11 @@ export class FirebaseService {
 
   // ─── Automations ─────────────────────────────────────────────────────────
 
-  public async fetchAutomations(): Promise<Record<string, any> | null> {
+  public async fetchAutomations(homeId?: string): Promise<Record<string, any> | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/automations`,
+        `${this.homePath(homeId)}/automations`,
         { method: "GET" }
       );
       if (response.ok) return await response.json();
@@ -709,11 +732,11 @@ export class FirebaseService {
     }
   }
 
-  public async saveAutomation(automation: any): Promise<boolean> {
+  public async saveAutomation(automation: any, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/automations/${automation.id}`,
+        `${this.homePath(homeId)}/automations/${automation.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -726,11 +749,11 @@ export class FirebaseService {
     }
   }
 
-  public async removeAutomation(automationId: string): Promise<boolean> {
+  public async removeAutomation(automationId: string, homeId?: string): Promise<boolean> {
     if (this.config.isDemoMode || !this.config.databaseURL) return true;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/automations/${automationId}`,
+        `${this.homePath(homeId)}/automations/${automationId}`,
         { method: "DELETE" }
       );
       return response.ok;
@@ -741,15 +764,18 @@ export class FirebaseService {
 
   // ─── Audit & Activity Logs ───────────────────────────────────────────────
 
-  public async logEvent(event: {
-    id?: string;
-    type: string;
-    title: string;
-    description: string;
-    actor?: string;
-    timestamp?: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<void> {
+  public async logEvent(
+    event: {
+      id?: string;
+      type: string;
+      title: string;
+      description: string;
+      actor?: string;
+      timestamp?: string;
+      metadata?: Record<string, unknown>;
+    },
+    homeId?: string
+  ): Promise<void> {
     if (this.config.isDemoMode || !this.config.databaseURL) return;
     try {
       const id = event.id || `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -758,7 +784,7 @@ export class FirebaseService {
         id,
         timestamp: event.timestamp || new Date().toISOString(),
       };
-      await this.requestWithAuth(`${this.homePath()}/logs/${id}`, {
+      await this.requestWithAuth(`${this.homePath(homeId)}/logs/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(logEntry),
@@ -768,11 +794,11 @@ export class FirebaseService {
     }
   }
 
-  public async fetchLogs(limit = 50): Promise<any[] | null> {
+  public async fetchLogs(limit = 50, homeId?: string): Promise<any[] | null> {
     if (this.config.isDemoMode || !this.config.databaseURL) return null;
     try {
       const response = await this.requestWithAuth(
-        `${this.homePath()}/logs?orderBy="$key"&limitToLast=${limit}`,
+        `${this.homePath(homeId)}/logs?orderBy="$key"&limitToLast=${limit}`,
         { method: "GET" }
       );
       if (response.ok) {
@@ -786,15 +812,16 @@ export class FirebaseService {
     }
   }
 
-  // ─── Overview ────────────────────────────────────────────────────────────
+  // ─── Overview ────────────────────────────────────────────────────
 
   public async updateOverviewField(
     field: string,
-    value: unknown
+    value: unknown,
+    homeId?: string
   ): Promise<void> {
     if (this.config.isDemoMode || !this.config.databaseURL) return;
     try {
-      await this.requestWithAuth(`${this.homePath()}/meta`, {
+      await this.requestWithAuth(`${this.homePath(homeId)}/meta`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: value }),
@@ -809,7 +836,7 @@ export class FirebaseService {
   private initRealtimeSync() {
     this.stopSync();
 
-    // Poll thiết bị mỗi 3 giây
+    // Poll thiết bị mỗi 3 giây theo activeHomeId
     this.pollInterval = setInterval(async () => {
       const result = await this.fetchDevicesDetailed();
 
@@ -838,7 +865,7 @@ export class FirebaseService {
       this.notifyListeners(devicesList);
     }, 3000);
 
-    // Poll cảnh báo mỗi 5 giây
+    // Poll cảnh báo mỗi 5 giây theo activeHomeId
     this.alertPollInterval = setInterval(async () => {
       const result = await this.fetchAlertsDetailed();
       if (!result.ok) return;

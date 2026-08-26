@@ -7,6 +7,7 @@ const MAX_RETRIES = 3;
 
 export interface QueuedCommand {
   id: string;
+  homeId?: string;
   deviceId: string;
   command: DeviceCommand;
   requestedBy: string;
@@ -48,11 +49,13 @@ class CommandQueueService {
   public async enqueue(
     deviceId: string,
     command: DeviceCommand,
-    requestedBy: string
+    requestedBy: string,
+    homeId?: string
   ): Promise<string> {
     const id = `queued_cmd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const item: QueuedCommand = {
       id,
+      homeId: homeId || firebaseService.getActiveHomeId(),
       deviceId,
       command,
       requestedBy,
@@ -96,7 +99,8 @@ class CommandQueueService {
             const res = await firebaseService.sendCommand(
               item.deviceId,
               item.command,
-              item.requestedBy
+              item.requestedBy,
+              item.homeId
             );
             return { item, success: !!res };
           } catch {

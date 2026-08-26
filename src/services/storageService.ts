@@ -47,10 +47,70 @@ class LocalStorageService {
       // Ignore
     }
   }
+
+  /**
+   * Xóa có chọn lọc các cache thuộc về một user cụ thể khi logout,
+   * giữ lại cấu hình hệ thống (Theme, Firebase Config, Developer Mode, Onboarding).
+   */
+  public async clearUserScopedData(uid: string): Promise<void> {
+    const userPrefix = `tusmarthome:${uid}:`;
+
+    // 1. Xóa trong memoryStore và xóa các key đã biết từ AsyncStorage
+    const memKeys = Object.keys(memoryStore);
+    const removals: Promise<unknown>[] = [];
+
+    for (const key of memKeys) {
+      if (
+        key.startsWith(userPrefix) ||
+        key.startsWith('tu_smarthome_devices') ||
+        key.startsWith('tu_smarthome_rooms') ||
+        key.startsWith('tu_smarthome_scenes') ||
+        key.startsWith('tu_smarthome_automations') ||
+        key.startsWith('tu_smarthome_members')
+      ) {
+        delete memoryStore[key];
+        removals.push(AsyncStorage.removeItem(key).catch(() => {}));
+      }
+    }
+
+    // 2. Xóa trong AsyncStorage thông qua getAllKeys nếu có key khác chưa được nạp vào memoryStore
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      if (Array.isArray(allKeys)) {
+        const keysToRemove = allKeys.filter(
+          (k) =>
+            k.startsWith(userPrefix) ||
+            k === 'tu_smarthome_devices_cache' ||
+            k === 'tu_smarthome_rooms_cache' ||
+            k === 'tu_smarthome_scenes_cache' ||
+            k === 'tu_smarthome_automations_cache' ||
+            k === 'tu_smarthome_members_cache'
+        );
+        removals.push(...keysToRemove.map((k) => AsyncStorage.removeItem(k).catch(() => {})));
+      }
+    } catch {
+      // Ignore
+    }
+
+    await Promise.all(removals);
+  }
 }
 
 /**
- * Dữ liệu nhạy cảm (token đăng nhập, database secret...).
+ * Sinh cache key có namespace theo user & home để tránh xung đột dữ liệu (data bleed)
+ */
+export function getScopedCacheKey(
+  entity: string,
+  uid?: string,
+  homeId?: string
+): string {
+  const safeUid = uid || 'anon';
+  const safeHome = homeId || 'home_main';
+  return `tusmarthome:${safeUid}:${safeHome}:${entity}`;
+}
+
+/**
+ * Dữ liệu nhạy cảm (ID tokens, refresh tokens, API keys...).
  * Ưu tiên SecureStore (Keychain/Keystore), fallback localStorage trên web, cuối cùng là memory.
  */
 class SecureStorageService {
