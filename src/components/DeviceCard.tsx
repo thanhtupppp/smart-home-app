@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Switch } from 'react-native';
 import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Typography, BorderRadius, NeuStyles, NeuPalette } from '../theme';
 import { Device } from '../types';
@@ -78,15 +78,17 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
   };
 
   return (
-    <TouchableOpacity
-      style={[
+    <Pressable
+      style={({ pressed }) => [
         styles.card,
         NeuStyles.raised,
         device.isOn && [styles.cardActive, { borderColor: accentColor }],
         !device.isOnline && styles.cardOffline,
+        pressed && styles.cardPressed,
       ]}
       onPress={onPressDetail ? onPressDetail : onToggle}
-      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={`Thiết bị ${device.name}`}
     >
       <View style={styles.topRow}>
         <View
@@ -158,22 +160,27 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
 
       {/* Detail indicator button for complex controllers */}
       {hasDetailButton && (
-        <TouchableOpacity
-          style={[styles.detailButton, NeuStyles.circleRaised]}
+        <Pressable
+          style={({ pressed }) => [
+            styles.detailButton,
+            pressed ? NeuStyles.circlePressed : NeuStyles.circleRaised,
+          ]}
           onPress={onPressDetail}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Chi tiết ${device.name}`}
         >
           <Ionicons name="chevron-forward" size={14} color="#475569" />
-        </TouchableOpacity>
+        </Pressable>
       )}
 
       {onDelete && (
-        <TouchableOpacity
-          style={[
+        <Pressable
+          style={({ pressed }) => [
             styles.deleteButton,
             NeuStyles.circleRaised,
-            // Né sang trái nếu đã có nút chi tiết ở góc phải để không chồng nhau
             hasDetailButton ? styles.deleteButtonShifted : null,
+            pressed && { opacity: 0.7 },
           ]}
           onPress={onDelete}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -181,9 +188,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = React.memo(({
           accessibilityLabel={`Xóa thiết bị ${device.name}`}
         >
           <Ionicons name="trash-outline" size={13} color="#EF4444" />
-        </TouchableOpacity>
+        </Pressable>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 });
 
@@ -193,6 +200,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     position: 'relative',
     borderRadius: BorderRadius.xl,
+  },
+  cardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
   cardActive: {
     borderWidth: 1.5,

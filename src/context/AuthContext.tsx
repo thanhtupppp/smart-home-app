@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { AuthUser, AuthRole } from '../types';
 import { authService } from '../services/authService';
 
@@ -46,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const login = async (email: string, pass: string, customApiKey?: string): Promise<AuthUser> => {
+  const login = useCallback(async (email: string, pass: string, customApiKey?: string): Promise<AuthUser> => {
     setIsLoading(true);
     try {
       const authUser = await authService.signInWithEmail(email, pass, customApiKey);
@@ -54,9 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loginWithGoogle = async (idToken?: string, customApiKey?: string): Promise<AuthUser> => {
+  const loginWithGoogle = useCallback(async (idToken?: string, customApiKey?: string): Promise<AuthUser> => {
     setIsLoading(true);
     try {
       const authUser = await authService.signInWithGoogle(idToken, customApiKey);
@@ -64,9 +64,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const register = async (
+  const register = useCallback(async (
     email: string,
     pass: string,
     displayName: string,
@@ -80,58 +80,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loginDemo = (): AuthUser => {
+  const loginDemo = useCallback((): AuthUser => {
     return authService.loginDemoUser();
-  };
+  }, []);
 
-  const logout = async (): Promise<void> => {
+  const logout = useCallback(async (): Promise<void> => {
     // Xóa home cache & local storage trước khi signOut để không leak data giữa sessions
     const { firebaseService } = await import('../services/firebaseService');
     const { safeStorage } = await import('../services/storageService');
     await firebaseService.clearActiveHome();
     await safeStorage.clear();
     await authService.signOut();
-  };
+  }, []);
 
-  const resetPassword = async (email: string, customApiKey?: string): Promise<boolean> => {
+  const resetPassword = useCallback(async (email: string, customApiKey?: string): Promise<boolean> => {
     setIsLoading(true);
     try {
       return await authService.sendPasswordResetEmail(email, customApiKey);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const updateProfile = async (displayName: string): Promise<boolean> => {
+  const updateProfile = useCallback(async (displayName: string): Promise<boolean> => {
     if (!user?.idToken) return false;
     return await authService.updateProfile(user.idToken, displayName);
-  };
+  }, [user?.idToken]);
 
   const isAuthenticated = user !== null;
   const isDemoMode = !user || !!user.isDemo;
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated,
-        isDemoMode,
-        isLoading,
-        isInitializing,
-        login,
-        loginWithGoogle,
-        register,
-        loginDemo,
-        logout,
-        resetPassword,
-        updateProfile,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      isAuthenticated,
+      isDemoMode,
+      isLoading,
+      isInitializing,
+      login,
+      loginWithGoogle,
+      register,
+      loginDemo,
+      logout,
+      resetPassword,
+      updateProfile,
+    }),
+    [
+      user,
+      isAuthenticated,
+      isDemoMode,
+      isLoading,
+      isInitializing,
+      login,
+      loginWithGoogle,
+      register,
+      loginDemo,
+      logout,
+      resetPassword,
+      updateProfile,
+    ]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
@@ -141,3 +153,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, Pressable, StyleProp, ViewStyle } from 'react-native';
 import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Typography, BorderRadius, NeuStyles, NeuPalette } from '../theme';
 import { Room } from '../types';
@@ -36,12 +36,16 @@ export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, st
   };
 
   return (
-    <TouchableOpacity
-      style={[styles.card, NeuStyles.raised, style]}
+    <Pressable
+      style={({ pressed }) => [
+        styles.card,
+        NeuStyles.raised,
+        style,
+        pressed && styles.cardPressed,
+      ]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Phòng ${room.name}, ${room.activeCount} trên ${room.deviceCount} thiết bị đang bật`}
-      activeOpacity={0.85}
     >
       <View style={styles.headerRow}>
         <View style={[styles.iconContainer, NeuStyles.raisedSoft]}>
@@ -81,7 +85,7 @@ export const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onPress, st
           </View>
         )}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 });
 
@@ -90,6 +94,10 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: BorderRadius.xl,
     width: '100%',
+  },
+  cardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
   headerRow: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text, StyleSheet, Pressable, View } from 'react-native';
 import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Typography, BorderRadius, NeuStyles, NeuPalette } from '../theme';
 import { Scene } from '../types';
@@ -27,13 +27,18 @@ export const QuickSceneButton: React.FC<QuickSceneButtonProps> = ({ scene, onPre
   };
 
   return (
-    <TouchableOpacity
-      style={[
+    <Pressable
+      style={({ pressed }) => [
         styles.container,
-        scene.isActive ? [NeuStyles.pressed, styles.activeContainer] : NeuStyles.raisedSoft,
+        scene.isActive
+          ? [NeuStyles.pressed, styles.activeContainer]
+          : pressed
+          ? [NeuStyles.pressed, styles.pressedContainer]
+          : NeuStyles.raisedSoft,
       ]}
       onPress={onPress}
-      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={`Ngữ cảnh ${scene.name}`}
     >
       <View
         style={[
@@ -58,7 +63,7 @@ export const QuickSceneButton: React.FC<QuickSceneButtonProps> = ({ scene, onPre
           <View style={styles.activeDot} />
         </View>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -75,6 +80,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     borderColor: 'rgba(59, 130, 246, 0.4)',
     borderWidth: 1.5,
+  },
+  pressedContainer: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   iconWrapper: {
     width: 32,

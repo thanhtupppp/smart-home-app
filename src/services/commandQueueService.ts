@@ -76,7 +76,7 @@ class CommandQueueService {
   }
 
   /**
-   * Gửi toàn bộ các lệnh đang chờ khi kết nối mạng được khôi phục
+   * Gửi toàn bộ các lệnh đang chờ khi kết nối mạng được khôi phục (xử lý song song / batch)
    */
   public async flush(): Promise<{ succeeded: number; failed: number }> {
     if (this.isProcessing || this.queue.length === 0) {
@@ -89,15 +89,26 @@ class CommandQueueService {
     const remaining: QueuedCommand[] = [];
 
     try {
-      for (const item of this.queue) {
-        try {
-          const res = await firebaseService.sendCommand(
-            item.deviceId,
-            item.command,
-            item.requestedBy
-          );
+      const itemsToProcess = [...this.queue];
+      const results = await Promise.allSettled(
+        itemsToProcess.map(async (item) => {
+          try {
+            const res = await firebaseService.sendCommand(
+              item.deviceId,
+              item.command,
+              item.requestedBy
+            );
+            return { item, success: !!res };
+          } catch {
+            return { item, success: false };
+          }
+        })
+      );
 
-          if (res) {
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const { item, success } = result.value;
+          if (success) {
             succeeded++;
           } else {
             item.retryCount++;
@@ -106,13 +117,6 @@ class CommandQueueService {
             } else {
               failed++;
             }
-          }
-        } catch {
-          item.retryCount++;
-          if (item.retryCount < MAX_RETRIES) {
-            remaining.push(item);
-          } else {
-            failed++;
           }
         }
       }
