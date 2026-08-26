@@ -132,41 +132,42 @@ class AuthService {
         throw new Error(this.mapAuthError(data.error?.message || 'LOGIN_FAILED'));
       }
 
-      let assignedRole: AuthRole = 'owner';
+      // Mặc định member — role thật đọc từ homes/{homeId}/members/{uid}
+      // (homeId sẽ được resolve sau khi HomeContext bootstrap)
+      let assignedRole: AuthRole = 'member';
       let assignedName = data.displayName || data.email.split('@')[0];
 
       try {
         const dbUrl = appConfig.firebaseDatabaseURL;
-        if (dbUrl) {
-          const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
-          if (membersRes.ok) {
-            const membersData = await membersRes.json();
-            if (membersData) {
-              const memberList = Object.values(membersData) as any[];
-              const matched = memberList.find(
-                (m) => m.email && m.email.toLowerCase() === data.email.toLowerCase()
-              );
-              if (matched) {
-                assignedRole = matched.role || 'member';
-                if (matched.name) assignedName = matched.name;
-
-                // Automatically mark member as activated in Firebase RTDB
-                if (matched.id) {
-                  fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      isActivated: true,
-                      lastLoginAt: new Date().toISOString(),
-                    }),
-                  }).catch(() => {});
+        // Thử đọc role từ home đầu tiên user là member
+        // bootstrap homeId = home_{uid.substring(0,8)}
+        if (dbUrl && data.localId) {
+          const bootstrapHomeId = `home_${data.localId.substring(0, 8)}`;
+          const memberRes = await fetch(
+            `${dbUrl}/homes/${bootstrapHomeId}/members/${data.localId}.json?auth=${data.idToken}`
+          );
+          if (memberRes.ok) {
+            const memberData = await memberRes.json();
+            if (memberData && memberData.role) {
+              assignedRole = memberData.role as AuthRole;
+              if (memberData.name) assignedName = memberData.name;
+              // Cập nhật lastLoginAt
+              fetch(
+                `${dbUrl}/homes/${bootstrapHomeId}/members/${data.localId}.json?auth=${data.idToken}`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    isActivated: true,
+                    lastLoginAt: new Date().toISOString(),
+                  }),
                 }
-              }
+              ).catch(() => {});
             }
           }
         }
       } catch {
-        // Fallback
+        // Fallback to member
       }
 
       const authUser: AuthUser = {
@@ -227,42 +228,40 @@ class AuthService {
         throw new Error(this.mapAuthError(data.error?.message || 'GOOGLE_LOGIN_FAILED'));
       }
 
-      let assignedRole: AuthRole = 'owner';
+      // Mặc định member — role thật đọc từ homes/{homeId}/members/{uid}
+      let assignedRole: AuthRole = 'member';
       let assignedName = data.displayName || data.email?.split('@')[0] || 'Google User';
 
       try {
         const dbUrl = appConfig.firebaseDatabaseURL;
-        if (dbUrl) {
-          const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
-          if (membersRes.ok) {
-            const membersData = await membersRes.json();
-            if (membersData) {
-              const memberList = Object.values(membersData) as any[];
-              const matched = memberList.find(
-                (m) => m.email && m.email.toLowerCase() === data.email?.toLowerCase()
-              );
-              if (matched) {
-                assignedRole = matched.role || 'member';
-                if (matched.name) assignedName = matched.name;
-
-                // Automatically mark member as activated in Firebase RTDB
-                if (matched.id) {
-                  fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      isActivated: true,
-                      lastLoginAt: new Date().toISOString(),
-                    }),
-                  }).catch(() => {});
+        if (dbUrl && data.localId) {
+          const bootstrapHomeId = `home_${data.localId.substring(0, 8)}`;
+          const memberRes = await fetch(
+            `${dbUrl}/homes/${bootstrapHomeId}/members/${data.localId}.json?auth=${data.idToken}`
+          );
+          if (memberRes.ok) {
+            const memberData = await memberRes.json();
+            if (memberData && memberData.role) {
+              assignedRole = memberData.role as AuthRole;
+              if (memberData.name) assignedName = memberData.name;
+              fetch(
+                `${dbUrl}/homes/${bootstrapHomeId}/members/${data.localId}.json?auth=${data.idToken}`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    isActivated: true,
+                    lastLoginAt: new Date().toISOString(),
+                  }),
                 }
-              }
+              ).catch(() => {});
             }
           }
         }
       } catch {
-        // Fallback
+        // Fallback to member
       }
+
 
       const authUser: AuthUser = {
         uid: data.localId,
@@ -286,13 +285,14 @@ class AuthService {
   }
 
   /**
-   * Đăng ký tài khoản Firebase mới
+   * Đăng ký tài khoản Firebase mới.
+   * Role luôn là 'member' — owner chỉ được bootstrap tự động khi tạo nhà lần đầu.
+   * Không bao giờ nhận role param từ client.
    */
   public async signUpWithEmail(
     email: string,
     pass: string,
     displayName: string,
-    role: AuthRole = 'owner',
     customApiKey?: string
   ): Promise<AuthUser> {
     const key = customApiKey || this.apiKey;
@@ -320,7 +320,7 @@ class AuthService {
         throw new Error(this.mapAuthError(data.error?.message || 'SIGNUP_FAILED'));
       }
 
-      // Update display name if provided
+      // Cập nhật displayName qua Firebase Auth profile
       if (displayName && data.idToken) {
         await this.updateProfile(data.idToken, displayName, key);
       }
@@ -329,7 +329,7 @@ class AuthService {
         uid: data.localId,
         email: data.email,
         displayName: displayName.trim() || data.email.split('@')[0],
-        role: role,
+        role: 'member', // Mặc định member — owner bootstrap qua tạo nhà đầu tiên
         idToken: data.idToken,
         refreshToken: data.refreshToken,
         expiresIn: parseInt(data.expiresIn, 10),
@@ -477,10 +477,15 @@ class AuthService {
   /**
    * Đăng xuất tài khoản
    */
+  /**
+   * Đăng xuất — xóa toàn bộ token và cache nhạy cảm khỏi SecureStore.
+   */
   public async signOut(): Promise<void> {
     this.currentUser = null;
     this.notifyListeners();
     await this.persistUser(null);
+    // Xóa API key khỏi bộ nhớ (không lưu vào storage nên chỉ cần reset)
+    // Config của Firebase vẫn giữ nhưng đã không có token
   }
 
   /**

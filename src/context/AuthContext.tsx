@@ -14,7 +14,6 @@ interface AuthContextType {
     email: string,
     pass: string,
     displayName: string,
-    role?: AuthRole,
     customApiKey?: string
   ) => Promise<AuthUser>;
   loginDemo: () => AuthUser;
@@ -71,12 +70,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     pass: string,
     displayName: string,
-    role: AuthRole = 'owner',
     customApiKey?: string
   ): Promise<AuthUser> => {
     setIsLoading(true);
     try {
-      const authUser = await authService.signUpWithEmail(email, pass, displayName, role, customApiKey);
+      // Role không được nhận từ client — luôn là 'member', owner bootstrap khi tạo nhà
+      const authUser = await authService.signUpWithEmail(email, pass, displayName, customApiKey);
       return authUser;
     } finally {
       setIsLoading(false);
@@ -88,6 +87,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async (): Promise<void> => {
+    // Xóa home cache trước khi signOut để không leak data giữa sessions
+    const { firebaseService } = await import('../services/firebaseService');
+    await firebaseService.clearActiveHome();
     await authService.signOut();
   };
 

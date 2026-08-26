@@ -1,27 +1,72 @@
 export type DeviceType = 'light' | 'rgb_light' | 'ac' | 'switch' | 'sensor' | 'fan' | 'camera' | 'curtain';
 
+// ─── Shadow Model (Desired / Reported) ─────────────────────────────────────
+// "desired"  = trạng thái app muốn thiết bị đạt tới (app ghi)
+// "reported" = trạng thái thiết bị thực tế đang báo về (ESP32 ghi)
+
+export interface DeviceDesired {
+  isOn?: boolean;
+  brightness?: number;
+  color?: string;
+  rgbMode?: 'solid' | 'rainbow' | 'breathing' | 'strobe';
+  temperature?: number;
+  acMode?: 'cool' | 'heat' | 'dry' | 'fan' | 'eco';
+  fanSpeed?: 'auto' | 'low' | 'medium' | 'high';
+  /** ID của command đã tạo state này */
+  commandId?: string;
+}
+
+export interface DeviceReported {
+  isOn?: boolean;
+  brightness?: number;
+  color?: string;
+  rgbMode?: 'solid' | 'rainbow' | 'breathing' | 'strobe';
+  temperature?: number;
+  currentTemperature?: number;
+  humidity?: number;
+  airQuality?: string;
+  acMode?: 'cool' | 'heat' | 'dry' | 'fan' | 'eco';
+  fanSpeed?: 'auto' | 'low' | 'medium' | 'high';
+  isOnline?: boolean;
+  /** Unix timestamp ms - heartbeat từ ESP32 */
+  lastSeenAt?: number;
+  /** ID của command cuối thiết bị đã thực thi xong */
+  lastAppliedCommandId?: string;
+  powerUsageWatts?: number;
+  firmwareVersion?: string;
+}
+
+// ─── Device ────────────────────────────────────────────────────────────────
+
 export interface Device {
   id: string;
   name: string;
   type: DeviceType;
   roomId: string;
   roomName: string;
+  isFavorite?: boolean;
+  lastUpdated?: string;
+
+  // Flat UI state (merged từ reported; optimistic update từ desired khi pending)
   isOnline: boolean;
   isOn: boolean;
-  isFavorite?: boolean;
-  // Specific device attributes
-  brightness?: number; // 0-100
-  color?: string; // Hex color for RGB
+  brightness?: number;
+  color?: string;
   rgbMode?: 'solid' | 'rainbow' | 'breathing' | 'strobe';
-  temperature?: number; // Target temperature for AC (16-30)
-  currentTemperature?: number; // Sensor temperature
-  humidity?: number; // Sensor humidity
-  airQuality?: string; // Good, Moderate, Poor
+  temperature?: number;
+  currentTemperature?: number;
+  humidity?: number;
+  airQuality?: string;
   acMode?: 'cool' | 'heat' | 'dry' | 'fan' | 'eco';
   fanSpeed?: 'auto' | 'low' | 'medium' | 'high';
   powerUsageWatts?: number;
-  lastUpdated?: string;
+
+  // Sub-documents từ Firebase (tùy chọn — present khi fetch từ homeId-scoped path)
+  desired?: DeviceDesired;
+  reported?: DeviceReported;
 }
+
+// ─── Room ──────────────────────────────────────────────────────────────────
 
 export interface Room {
   id: string;
@@ -34,15 +79,55 @@ export interface Room {
   humidity?: number;
 }
 
+// ─── Command / Ack protocol ────────────────────────────────────────────────
+
+/** Discriminated union — mỗi loại lệnh có payload riêng */
+export type DeviceCommand =
+  | { type: 'power'; value: boolean }
+  | { type: 'brightness'; value: number }           // 0–100
+  | { type: 'temperature'; value: number }           // 16–30
+  | { type: 'rgb'; color: string; brightness?: number; mode?: string }
+  | { type: 'acMode'; value: 'cool' | 'heat' | 'dry' | 'fan' | 'eco' }
+  | { type: 'fanSpeed'; value: 'auto' | 'low' | 'medium' | 'high' }
+  | { type: 'curtain'; value: boolean };
+
+export type CommandStatus = 'pending' | 'applied' | 'failed' | 'timeout';
+
+/** Ghi vào homes/{homeId}/commands/{commandId} */
+export interface CommandRecord {
+  id: string;
+  deviceId: string;
+  type: DeviceCommand['type'];
+  payload: Record<string, unknown>;
+  requestedBy: string;   // uid của người ra lệnh
+  requestedAt: number;   // Unix ms
+  status: CommandStatus;
+  expiresAt: number;     // requestedAt + 15_000
+  appliedAt?: number;
+}
+
+// ─── Scene ─────────────────────────────────────────────────────────────────
+
+export interface SceneAction {
+  deviceId: string;
+  /** Chỉ các trường được phép thay đổi */
+  patch: Partial<Pick<Device, 'isOn' | 'brightness' | 'color' | 'rgbMode' | 'temperature' | 'acMode'>>;
+}
+
 export interface Scene {
   id: string;
+  homeId?: string;
   name: string;
   icon: string;
   description: string;
   isActive: boolean;
   actionsCount: number;
+  /** Nếu có: data-driven. Nếu undefined: fallback về logic hard-code trong HomeContext */
+  actions?: SceneAction[];
   timeSchedule?: string;
 }
+
+// ─── Automation ────────────────────────────────────────────────────────────
 
 export interface Automation {
   id: string;
@@ -55,6 +140,8 @@ export interface Automation {
   executionTime?: string;
 }
 
+// ─── Alert ─────────────────────────────────────────────────────────────────
+
 export interface AlertNotification {
   id: string;
   title: string;
@@ -65,13 +152,18 @@ export interface AlertNotification {
   deviceId?: string;
 }
 
+// ─── Firebase Config ───────────────────────────────────────────────────────
+// authSecret đã bị XÓA — không bao giờ lưu Database Secret trong app.
+// App chỉ dùng Firebase ID Token từ Firebase Authentication.
+
 export interface FirebaseConfig {
   databaseURL: string;
   apiKey?: string;
   projectId?: string;
-  authSecret?: string;
   isDemoMode: boolean;
 }
+
+// ─── Auth ──────────────────────────────────────────────────────────────────
 
 export type AuthRole = 'owner' | 'member' | 'guest';
 
@@ -88,6 +180,8 @@ export interface AuthUser {
   isDemo?: boolean;
 }
 
+// ─── Home Overview ─────────────────────────────────────────────────────────
+
 export interface HomeOverview {
   homeName: string;
   totalDevices: number;
@@ -99,3 +193,17 @@ export interface HomeOverview {
   securityStatus: 'armed' | 'disarmed' | 'alert';
 }
 
+// ─── Connection Status ─────────────────────────────────────────────────────
+/** Trạng thái kết nối thật giữa app và Firebase RTDB */
+export type HomeConnectionStatus = 'connected' | 'reconnecting' | 'offline';
+
+// ─── Home Meta ─────────────────────────────────────────────────────────────
+/** Metadata của một ngôi nhà — lưu tại homes/{homeId}/meta */
+export interface HomeMeta {
+  id: string;
+  name: string;
+  address?: string;
+  icon?: string;
+  createdAt: string;
+  ownerUid: string;
+}

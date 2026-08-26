@@ -36,7 +36,6 @@ export const FirebaseConfigScreen: React.FC = () => {
 
   const [dbUrl, setDbUrl] = useState(firebaseConfig.databaseURL || '');
   const [apiKey, setApiKey] = useState(firebaseConfig.apiKey || '');
-  const [authSecret, setAuthSecret] = useState(firebaseConfig.authSecret || '');
   const [isDemo, setIsDemo] = useState(firebaseConfig.isDemoMode);
   const [isTesting, setIsTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -87,7 +86,6 @@ export const FirebaseConfigScreen: React.FC = () => {
     updateFirebaseConfig({
       databaseURL: dbUrl.trim(),
       apiKey: apiKey.trim(),
-      authSecret: authSecret.trim(),
       isDemoMode: isDemo,
     });
 
@@ -100,7 +98,7 @@ export const FirebaseConfigScreen: React.FC = () => {
           : 'Đã kết nối với Firebase Realtime Database thành công!'
       );
     }, 800);
-  }, [dbUrl, apiKey, authSecret, isDemo, isValidFirebaseUrl, updateFirebaseConfig]);
+  }, [dbUrl, apiKey, isDemo, isValidFirebaseUrl, updateFirebaseConfig]);
 
   const handleToggleDemo = useCallback((value: boolean) => {
     // Chỉ đổi chế độ, KHÔNG xóa thông số người dùng đã nhập
@@ -201,34 +199,31 @@ export const FirebaseConfigScreen: React.FC = () => {
             autoCapitalize="none"
             returnKeyType="next"
           />
-
-          <Text style={[styles.label, { marginTop: 14 }]}>
-            DATABASE SECRET (Dành cho ESP32 RTDB Legacy)
-          </Text>
-          <TextInput
-            style={[styles.input, NeuStyles.cavity]}
-            value={authSecret}
-            onChangeText={setAuthSecret}
-            placeholder="Nhập secret nếu database có phân quyền"
-            placeholderTextColor="#94A3B8"
-            secureTextEntry
-            editable={!isDemo}
-            autoCapitalize="none"
-            returnKeyType="done"
-            onSubmitEditing={handleTestAndSave}
-          />
         </View>
 
-        {/* ESP32 Communication Guidance */}
+        {/* Security Notice */}
+        <View style={[styles.warningCard, NeuStyles.cavity]}>
+          <View style={styles.infoTitleRow}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#059669" />
+            <Text style={[Typography.titleMedium, styles.infoTitle]}>
+              Bảo mật: Không cần Database Secret
+            </Text>
+          </View>
+          <Text style={styles.infoDesc}>
+            App dùng <Text style={{ fontWeight: '700' }}>Firebase ID Token</Text> để xác thực — an toàn hơn Database Secret rất nhiều.
+            ESP32 nên kết nối qua MQTT Gateway hoặc dùng Firebase SDK với custom token từ backend.
+          </Text>
+        </View>
+
         <View style={[styles.infoCard, NeuStyles.cavity]}>
           <View style={styles.infoTitleRow}>
             <MaterialIcons name="integration-instructions" size={18} color="#2563EB" />
             <Text style={[Typography.titleMedium, styles.infoTitle]}>
-              Cấu trúc dữ liệu trên ESP32
+              Cấu trúc dữ liệu homes/{homeId}
             </Text>
           </View>
           <Text style={styles.infoCode}>
-            {`Node Firebase: /devices/{deviceId}\n{\n  "isOn": true,\n  "brightness": 85,\n  "color": "#00e5ff",\n  "temperature": 24\n}`}
+            {`Node Firebase:\nhomes/{homeId}/devices/{deviceId}\n{\n  "desired": { "isOn": true, "commandId": "cmd_..." },\n  "reported": { "isOn": true, "lastSeenAt": 1234567890 }\n}`}
           </Text>
         </View>
 
@@ -380,6 +375,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8ECF2',
     padding: 10,
     borderRadius: 10,
+    lineHeight: 18,
+  },
+  warningCard: {
+    padding: 16,
+    borderRadius: BorderRadius.xl,
+    marginBottom: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: '#059669',
+  },
+  infoDesc: {
+    fontSize: 12,
+    color: '#334155',
     lineHeight: 18,
   },
   saveBtn: {

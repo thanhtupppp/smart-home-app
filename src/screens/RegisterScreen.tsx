@@ -17,23 +17,17 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, NeuStyles, NeuPalette } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { useHome } from '../context/HomeContext';
 import { AppNavigationProp } from '../navigation/types';
-import { AuthRole } from '../types';
 
 export const RegisterScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const { register, isLoading } = useAuth();
-  const { firebaseConfig } = useHome();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<AuthRole>('owner');
   const [showPassword, setShowPassword] = useState(false);
-  const [apiKey, setApiKey] = useState(firebaseConfig.apiKey || '');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
 
   const handleRegister = useCallback(async () => {
     if (!displayName.trim() || !email.trim() || !password.trim()) {
@@ -55,9 +49,7 @@ export const RegisterScreen: React.FC = () => {
       await register(
         email,
         password,
-        displayName.trim(),
-        role,
-        apiKey.trim() || undefined
+        displayName.trim()
       );
 
       Alert.alert(
@@ -78,7 +70,7 @@ export const RegisterScreen: React.FC = () => {
     } catch (err: any) {
       Alert.alert('Đăng ký thất bại', err.message || 'Không thể tạo tài khoản.');
     }
-  }, [displayName, email, password, confirmPassword, role, apiKey, register, navigation]);
+  }, [displayName, email, password, confirmPassword, register, navigation]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -181,82 +173,14 @@ export const RegisterScreen: React.FC = () => {
               />
             </View>
 
-            {/* Role Selection */}
-            <Text style={styles.label}>Vai trò trong nhà</Text>
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.roleCard,
-                  role === 'owner' ? styles.roleActive : NeuStyles.cavity,
-                ]}
-                onPress={() => setRole('owner')}
-              >
-                <Ionicons
-                  name="shield-outline"
-                  size={20}
-                  color={role === 'owner' ? '#2563EB' : '#64748B'}
-                />
-                <Text
-                  style={[
-                    styles.roleName,
-                    role === 'owner' && { color: '#2563EB', fontWeight: '800' },
-                  ]}
-                >
-                  Chủ nhà (Admin)
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.roleCard,
-                  role === 'member' ? styles.roleActive : NeuStyles.cavity,
-                ]}
-                onPress={() => setRole('member')}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={20}
-                  color={role === 'member' ? '#2563EB' : '#64748B'}
-                />
-                <Text
-                  style={[
-                    styles.roleName,
-                    role === 'member' && { color: '#2563EB', fontWeight: '800' },
-                  ]}
-                >
-                  Thành viên
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Custom API Key Collapsible */}
-            <TouchableOpacity
-              onPress={() => setShowApiKeyInput(!showApiKeyInput)}
-              style={styles.apiKeyToggle}
-            >
-              <Ionicons
-                name={showApiKeyInput ? 'chevron-down' : 'chevron-forward'}
-                size={14}
-                color="#2563EB"
-              />
-              <Text style={styles.apiKeyToggleText}>
-                {apiKey ? 'API Key: Đã lưu cấu hình' : 'Tùy chỉnh Firebase Web API Key'}
+            {/* Info: role is assigned automatically */}
+            <View style={[styles.infoBox, NeuStyles.cavity]}>
+              <Ionicons name="information-circle-outline" size={16} color="#2563EB" />
+              <Text style={styles.infoText}>
+                Tài khoản mới sẽ được tạo với vai trò <Text style={{ fontWeight: '700' }}>Thành viên</Text>.
+                Chủ nhà (Owner) sẽ được thiết lập khi bạn tạo ngôi nhà đầu tiên.
               </Text>
-            </TouchableOpacity>
-
-            {showApiKeyInput && (
-              <View style={[styles.inputContainer, NeuStyles.cavity, { marginTop: 8 }]}>
-                <Ionicons name="key-outline" size={18} color="#64748B" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="AIzaSy..."
-                  placeholderTextColor="#94A3B8"
-                  value={apiKey}
-                  onChangeText={setApiKey}
-                  autoCapitalize="none"
-                />
-              </View>
-            )}
+            </View>
 
             {/* Register Button */}
             <TouchableOpacity
@@ -366,40 +290,20 @@ const styles = StyleSheet.create({
   eyeBtn: {
     padding: 4,
   },
-  roleRow: {
+  infoBox: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 4,
-  },
-  roleCard: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: BorderRadius.xl,
+    alignItems: 'flex-start',
     gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 14,
+    marginBottom: 4,
   },
-  roleActive: {
-    backgroundColor: '#DFE5EE',
-    borderWidth: 1.5,
-    borderColor: '#2563EB',
-  },
-  roleName: {
+  infoText: {
+    flex: 1,
     fontSize: 12,
     color: '#475569',
-    fontWeight: '700',
-  },
-  apiKeyToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    gap: 4,
-  },
-  apiKeyToggleText: {
-    fontSize: 11,
-    color: '#2563EB',
-    fontWeight: '700',
+    lineHeight: 18,
   },
   primaryBtn: {
     backgroundColor: '#2563EB',
