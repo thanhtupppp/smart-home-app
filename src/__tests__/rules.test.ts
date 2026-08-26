@@ -41,6 +41,27 @@ describe('Firebase RTDB Security Rules Specification Tests', () => {
       expect(memberUidRule['.write']).toContain("role').val() === 'owner'");
     });
 
+    it('should validate devices schema and restrict guest write to desired commands', () => {
+      const deviceRule = rulesJson.rules.homes['$homeId'].devices['$deviceId'];
+      expect(deviceRule['.validate']).toContain('hasChildren');
+      expect(deviceRule.desired['.write']).toContain("role').val() === 'owner'");
+      expect(deviceRule.desired['.write']).toContain("role').val() === 'member'");
+      expect(deviceRule.desired['.validate']).toContain('hasChildren');
+    });
+
+    it('should validate commands schema and restrict write to owners and members', () => {
+      const commandRule = rulesJson.rules.homes['$homeId'].commands['$commandId'];
+      expect(commandRule['.validate']).toContain('hasChildren');
+      expect(commandRule['.write']).toContain("role').val() === 'owner'");
+      expect(commandRule['.write']).toContain("role').val() === 'member'");
+    });
+
+    it('should restrict alert write to backend and allow member isRead patch', () => {
+      const alertRule = rulesJson.rules.homes['$homeId'].alerts['$alertId'];
+      expect(alertRule['.write']).toBe(false);
+      expect(alertRule.isRead['.write']).toContain('members');
+    });
+
     it('should deny catch-all other paths from public read/write', () => {
       const catchAllRule = rulesJson.rules['$other'];
       expect(catchAllRule['.read']).toBe(false);
