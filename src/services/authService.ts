@@ -1,5 +1,6 @@
 import { secureStorage } from './storageService';
 import { AuthUser, AuthRole, FirebaseConfig } from '../types';
+import { appConfig } from '../config/appConfig';
 
 export interface AuthResponse {
   idToken: string;
@@ -135,29 +136,31 @@ class AuthService {
       let assignedName = data.displayName || data.email.split('@')[0];
 
       try {
-        const dbUrl = 'https://tu-smart-home-1dcb8-default-rtdb.asia-southeast1.firebasedatabase.app';
-        const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
-        if (membersRes.ok) {
-          const membersData = await membersRes.json();
-          if (membersData) {
-            const memberList = Object.values(membersData) as any[];
-            const matched = memberList.find(
-              (m) => m.email && m.email.toLowerCase() === data.email.toLowerCase()
-            );
-            if (matched) {
-              assignedRole = matched.role || 'member';
-              if (matched.name) assignedName = matched.name;
+        const dbUrl = appConfig.firebaseDatabaseURL;
+        if (dbUrl) {
+          const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
+          if (membersRes.ok) {
+            const membersData = await membersRes.json();
+            if (membersData) {
+              const memberList = Object.values(membersData) as any[];
+              const matched = memberList.find(
+                (m) => m.email && m.email.toLowerCase() === data.email.toLowerCase()
+              );
+              if (matched) {
+                assignedRole = matched.role || 'member';
+                if (matched.name) assignedName = matched.name;
 
-              // Automatically mark member as activated in Firebase RTDB
-              if (matched.id) {
-                fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    isActivated: true,
-                    lastLoginAt: new Date().toISOString(),
-                  }),
-                }).catch(() => {});
+                // Automatically mark member as activated in Firebase RTDB
+                if (matched.id) {
+                  fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      isActivated: true,
+                      lastLoginAt: new Date().toISOString(),
+                    }),
+                  }).catch(() => {});
+                }
               }
             }
           }
@@ -228,29 +231,31 @@ class AuthService {
       let assignedName = data.displayName || data.email?.split('@')[0] || 'Google User';
 
       try {
-        const dbUrl = 'https://tu-smart-home-1dcb8-default-rtdb.asia-southeast1.firebasedatabase.app';
-        const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
-        if (membersRes.ok) {
-          const membersData = await membersRes.json();
-          if (membersData) {
-            const memberList = Object.values(membersData) as any[];
-            const matched = memberList.find(
-              (m) => m.email && m.email.toLowerCase() === data.email?.toLowerCase()
-            );
-            if (matched) {
-              assignedRole = matched.role || 'member';
-              if (matched.name) assignedName = matched.name;
+        const dbUrl = appConfig.firebaseDatabaseURL;
+        if (dbUrl) {
+          const membersRes = await fetch(`${dbUrl}/members.json?auth=${data.idToken}`);
+          if (membersRes.ok) {
+            const membersData = await membersRes.json();
+            if (membersData) {
+              const memberList = Object.values(membersData) as any[];
+              const matched = memberList.find(
+                (m) => m.email && m.email.toLowerCase() === data.email?.toLowerCase()
+              );
+              if (matched) {
+                assignedRole = matched.role || 'member';
+                if (matched.name) assignedName = matched.name;
 
-              // Automatically mark member as activated in Firebase RTDB
-              if (matched.id) {
-                fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    isActivated: true,
-                    lastLoginAt: new Date().toISOString(),
-                  }),
-                }).catch(() => {});
+                // Automatically mark member as activated in Firebase RTDB
+                if (matched.id) {
+                  fetch(`${dbUrl}/members/${matched.id}.json?auth=${data.idToken}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      isActivated: true,
+                      lastLoginAt: new Date().toISOString(),
+                    }),
+                  }).catch(() => {});
+                }
               }
             }
           }

@@ -1,14 +1,16 @@
 import { Device, FirebaseConfig, AlertNotification } from "../types";
 import { authService } from "./authService";
 import { secureStorage } from "./storageService";
+import { appConfig } from "../config/appConfig";
 
 const CONFIG_STORAGE_KEY = "tu_smarthome_firebase_config";
 
 export class FirebaseService {
+  // Giá trị mặc định lấy từ .env (EXPO_PUBLIC_*); nếu trống thì người dùng
+  // tự nhập qua màn hình "Cấu hình Firebase" và config đó được lưu lâu dài.
   private config: FirebaseConfig = {
-    databaseURL:
-      "https://tu-smart-home-1dcb8-default-rtdb.asia-southeast1.firebasedatabase.app",
-    apiKey: "AIzaSyB1LxkzmFpYhHBnfkbfzN7SbcqYUI-of1o",
+    databaseURL: appConfig.firebaseDatabaseURL,
+    apiKey: appConfig.firebaseApiKey,
     authSecret: "",
     isDemoMode: false,
   };

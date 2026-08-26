@@ -10,6 +10,7 @@ module.exports = {
     '^expo-secure-store$': '<rootDir>/src/__mocks__/expo-secure-store.js',
     '^expo-auth-session$': '<rootDir>/src/__mocks__/expo-auth-session.js',
     '^expo-web-browser$': '<rootDir>/src/__mocks__/expo-web-browser.js',
+    '^expo/virtual/env$': '<rootDir>/src/__mocks__/expo-virtual-env.js',
     '^test-renderer$': 'react-test-renderer',
   },
   testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],

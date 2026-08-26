@@ -19,6 +19,7 @@ import { Colors, Typography, Spacing, BorderRadius, NeuStyles, NeuPalette } from
 import { useAuth } from '../context/AuthContext';
 import { useHome } from '../context/HomeContext';
 import { AppNavigationProp } from '../navigation/types';
+import { appConfig } from '../config/appConfig';
 
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
@@ -51,9 +52,17 @@ export const LoginScreen: React.FC = () => {
     }
   }, [email, password, firebaseConfig.apiKey, login, navigation]);
 
-  const GOOGLE_CLIENT_ID = '935050639456-rek5kb31hmsbo1do221dbl0alq5a0hej.apps.googleusercontent.com';
+  // Lấy từ biến môi trường EXPO_PUBLIC_GOOGLE_CLIENT_ID trong file .env
+  const GOOGLE_CLIENT_ID = appConfig.googleClientId;
 
   const handleGoogleLogin = useCallback(async () => {
+    if (!GOOGLE_CLIENT_ID) {
+      Alert.alert(
+        'Chưa cấu hình Google',
+        'Google Client ID chưa được cấu hình. Vui lòng thêm EXPO_PUBLIC_GOOGLE_CLIENT_ID vào file .env (xem .env.example).'
+      );
+      return;
+    }
     try {
       const redirectUri = AuthSession.makeRedirectUri({
         scheme: 'tusmarthome',
@@ -84,7 +93,7 @@ export const LoginScreen: React.FC = () => {
         err.message || 'Không thể đăng nhập bằng tài khoản Google. Vui lòng thử lại.'
       );
     }
-  }, [firebaseConfig.apiKey, loginWithGoogle, navigation]);
+  }, [GOOGLE_CLIENT_ID, firebaseConfig.apiKey, loginWithGoogle, navigation]);
 
   const handleDemoLogin = useCallback(() => {
     loginDemo();
